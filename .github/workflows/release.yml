@@ -1,0 +1,53 @@
+name: release
+
+# Tag vX.Y.Z (matching MyAppVersion in installer/alondra1.iss) to build the self-contained setup and attach it to a
+# draft GitHub release. Review the draft, then publish it. Steps before tagging: docs/GUIDELINES.md → Releases.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  setup:
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write  # create the draft release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Install Inno Setup 6
+        run: choco install innosetup --no-progress -y
+      - name: Check the tag matches the installer version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          if (-not (Select-String -Path installer/alondra1.iss -Pattern "#define MyAppVersion `"$([regex]::Escape($version))`"" -Quiet)) {
+            throw "Tag $version does not match MyAppVersion in installer/alondra1.iss."
+          }
+      - name: Publish and build the setup
+        shell: pwsh
+        run: ./installer/publish.ps1
+      - name: Checksum
+        shell: pwsh
+        run: (Get-FileHash artifacts/Alondra1-setup.exe -Algorithm SHA256).Hash.ToLower() + "  Alondra1-setup.exe" | Out-File -Encoding ascii artifacts/Alondra1-setup.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Alondra1-setup
+          path: |
+            artifacts/Alondra1-setup.exe
+            artifacts/Alondra1-setup.exe.sha256
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" artifacts/Alondra1-setup.exe artifacts/Alondra1-setup.exe.sha256 --draft --title "Alondra1 ${{ github.ref_name }}" --notes "See docs/DELIVERY-NOTES.md."

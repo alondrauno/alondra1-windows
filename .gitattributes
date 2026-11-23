@@ -1,0 +1,5 @@
+# Line endings are stored as committed (no normalization): the .eml test fixtures depend on their exact bytes.
+*.sh text eol=lf
+*.png binary
+*.bmp binary
+*.ico binary

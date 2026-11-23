@@ -1,0 +1,353 @@
+# Delivery notes
+
+<img src="images/alondra1-logo-64.png" alt="" width="48" align="right">
+
+This is the release history, with what was verified for each release and what was not. Newest first.
+
+**Built with:**
+- .NET 10 SDK 10.0.404 (`net10.0` / `net10.0-windows`) and WPF;
+- MailKit 5, Microsoft.Data.Sqlite 11, MSAL, and Google.Apis.Auth;
+- Inno Setup 6.7 for the installer.
+
+**Test machine:** one PC running Windows build 10.0.26300 (DisplayVersion 26H2). That is the only OS any release was launched on.
+
+## Unreleased: split from the monorepo (2026-11-23)
+
+- The Windows app moved from `apps/windows` in the `alondra1` monorepo to the root of this repository. The Inno Setup `AppId`, the `%LOCALAPPDATA%londra1` data folder, and all project names are unchanged.
+- The task schema and golden fixture moved from `packages/` to `contract/` (`ContractSchemaTests` now looks for `contract/schemas`). The backend keeps a copy and checks it against this one.
+- The cloud backend, its decisions, and its runbooks are now in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend). Older entries below still use the monorepo paths.
+- CI: the `ci` workflow builds and tests on `windows-latest`; the `release` workflow builds the setup on `v*` tags.
+
+## Unreleased: client Milestones 2–4, rich reader, responsive layout, polish (2026-11-23)
+
+Client spec (`.import/ALONDRA1_CLIENT_SPEC.md`) §4–§7. All three milestones are in one change and were verified together on one installed build.
+
+**Milestone 2: rich message reader**
+- **HTML by default:** messages open in their HTML version, with an **HTML | Plain text** switch (instant, no re-fetch) and a default in Settings → Mail. `MimeBody` picks the bodies through nested multiparts and embeds `cid:` pictures as `data:` URIs, so they show offline. It also lists the attachments.
+- **Isolation:** `MailHtml` cleans HTML with an allow-list (HtmlSanitizer on AngleSharp). It removes scripts, styles with code, frames, forms, objects, SVG/MathML, meta refresh, `@import`, and `javascript:`/`vbscript:`/`data:text` URLs, and drops the content of code elements entirely. The result is wrapped in a document with a strict Content Security Policy. `MailBodyView` shows it in a WebView2 composition control with scripts, dev tools, host objects, downloads, permissions, new windows, and navigation off. Links open in the default browser or mail app (http, https, mailto only).
+- **Remote images** are blocked by default. A bar offers *Load images* and *Always load from …*; Settings → Mail offers *Always load* and the trusted-sender list. Blocked images keep their size and alt text, and obvious tracking pixels are always removed. In ask mode no request leaves the app (checked in WebView2). There is no proxy, so the settings say plainly that loading reveals the PC's address.
+- **Attachments:** chips with name, size, Open, and Save, for IMAP and POP3, online and offline copies. Opening a file that can run programs asks first.
+- If HTML cannot be shown, the reader switches to plain text and says so. The log gets the reason without message content.
+- The app now targets `net10.0-windows10.0.19041.0`, because the WebView2 composition control needs the Windows SDK projection. That adds about 4 MB to the installer.
+
+**Milestone 3: responsive layout and accessibility**
+- **Pane sizes:** while side by side, the list keeps at least 420 px and the reader 440 px. The default reader width gives about 55/45. Below that, Mail shows **one pane at a time**: the list, then the message after a click or Enter, with a Back button and Esc. The list keeps its selection and scroll position.
+- **Multi-select** (Shift/Ctrl) shows "3 selected · …" in the count, and Delete, Archive, and Mark read/unread apply to all selected messages. Mail shortcuts do nothing while you type in a text box.
+- **Settings → Mail:** reading format, remote images, trusted senders, row density, and pane positions.
+- **Display scaling:** `--scale` renders at 125, 150, and 200 %. This found the rows 2 px right of the column header at 150 %, caused by the ListBox template's built-in 1 px padding. A padding-free template fixed it, and the columns now match exactly at every scale. Grouped rows were also indented by WPF's default group container (6 px at 100 %); that is fixed too.
+
+**Milestone 4: polish**
+- **Rows** are 32 px (compact, default) and 40 px (comfortable).
+- **Panels over a background picture** are now 88 % opaque instead of 69 %. At 69 %, muted text over a bright part of the picture fell to 2.4:1; at 88 % every text color keeps at least 4.5:1 over any picture (`LegibilityTests`).
+- The reader's scroll bars match the app's slim ones. No hover animations were added, because no controls animated before (spec: "only where controls already animate").
+
+**Checks** (the snapshot and reader checks live in `scripts/`; see the [runbook](runbooks/windows-reinstall-check.md)):
+- `dotnet test`: 198 passed, 1 skipped (the opt-in 10 GB test), including the 5 live mail tests. New tests cover fixtures M01–M12, image policy, attachments, layout minimums, one-pane frames, the default split, and legibility.
+- `check-reader.ps1`: all 13 fixture runs pass in the real WebView2. No script ran in M10, no remote request was made while images were blocked, and the expected attachments, formats, and image counts appeared.
+- `snapshot-matrix.ps1`: 60 snapshots. It covers 4 window sizes, light and dark, 100/125/150/200 %, and the inbox, plain, rich, blocked, no-results, one-pane, and Settings states. All pass the geometry checks (heights, insets, toolbar center line, control heights, overflow, overlaps, gutter, From column).
+- Reinstall check on the final build: uninstall, clean install (56 MB installer), import, sync of both test accounts (110 messages), a send from Dev (IMAP) received by User (POP3), the account kept across a restart, snapshots of every module, and the reader check on the installed copy all passed.
+- Not done: real Windows display-scaling changes (only simulated with `--scale`), hover-state snapshots, and a screen-reader pass.
+
+## Unreleased: client Milestone 1, correctness and chrome (2026-11-23)
+
+Client spec (`.import/ALONDRA1_CLIENT_SPEC.md`) §3 and §8.1.
+
+- **Message count:** the list header counts the folder, account scope, and search filter ("24 messages", "5 of 24 messages", "No matches", "Loading…", "3 selected · …"). It no longer counts the rows that fit on screen, so "0 of 0 visible" and "19 of 60 visible" are gone. An empty list says why: no search results, offline, sync failed, or an empty folder.
+- **Settings icon:** a standard 8-tooth gear replaces the circle with spokes, which looked like a ship's wheel.
+- **Toolbar:** icon buttons are 36 × 36, like every other toolbar surface. Delete shows the danger color only on hover and focus. Disabled message actions say "Select a message first" in their tooltip and help text. The overlap at about 470 px (folder selector under New) is gone.
+- **Rows:** a selected row has an accent edge as well as the selected surface. Unread rows have a dot and a semibold sender and subject. Dates use tabular numerals. The scroll bar is slimmer (8 px), easier to see, and keeps 6 px from the dates.
+- **Subjects in legacy charsets:** Cyrillic and Central European subjects (windows-1251, koi8-r, iso-8859-2 encoded words, and raw 8-bit POP3 headers) showed as "áëàãîïàâ…". The cause: .NET loads those code pages only when a provider is registered, and MimeKit caches the failed lookup. The app now registers them at startup, and raw POP3 headers use the message's charset.
+- **Reinstall tooling:** `--import-config`, `--import-passwords`, `--sync`/`--send-check` results in `logs\check.log`, `--account=`, exit codes, and `apps/windows/scripts/reinstall-local.ps1` ([runbook](runbooks/windows-reinstall-check.md)). The Mail account choice is now kept across restarts.
+- **Verified:**
+  - `dotnet test`: 170 passed, 1 skipped (the opt-in 10 GB test), including the 5 live mail tests.
+  - The reinstall check passed on the installed build. It uninstalled an older copy left in `Programs\Alondra` from before the rename, then did a clean install to `Programs\Alondra1`, the import, a sync of both accounts (104 messages), and a send from Dev (IMAP) received by User (POP3) after one sync. It also checked that the account choice is kept across a restart and took snapshots of every module.
+
+## Unreleased: IMAP messages, sync button, mail view settings (2026-11-22)
+
+- **IMAP accounts showed no messages.** Sync stored messages under the server's folder ids (`INBOX`, `INBOX.INBOX.Sent`), but the list asked for the displayed names (`Inbox`, `Sent`), and the mapping between them was never filled. The new `SpecialFolders` class maps displayed folders to real ids, learned from the folder list of each sync (the special-use flag first, then the name) and saved to the account's folder map. Copies of sent mail go to the same learned folder.
+- **POP3 received times** were the time of the sync: `DateTimeOffset.TryParse` rejects most RFC 5322 dates. They are now parsed with MimeKit.
+- **Sync button:** the status chip became a button (refresh icon, status dot, label on wide windows) that syncs every account, the same as F5. Every account is synced even when one fails. The tooltip lists each failure, or "N accounts up to date".
+- **View settings:** Mail's Layout popup is now View settings, with Account (All accounts or one) and Group (By account or Together) above folder position, reading pane, and density. The toolbar account selector stays for Calendar, Notes, and Contacts. Grouping by account is the default for new configurations.
+- Verified with the two live test accounts: `LiveMailTests` (5) pass; `Alondra1.exe --sync --open=Mail` lists 60 messages from both accounts, grouped by account, with the learned folder map `INBOX` / `INBOX.INBOX.Sent` / `INBOX.INBOX.Drafts` / `INBOX.INBOX.Trash`.
+
+## Unreleased: cloud backend, Milestone F: operational readiness (2026-11-22)
+
+Everything stays on Docker Compose, as the spec requires; host provisioning, DNS, and the firewall remain the operator's job ([production runbook](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/production.md)).
+
+- **Retention job:** `internal/maintenance` enforces [ADR 0003](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0003-retention.md).
+  - It purges the change log after 90 days, raising each space's cursor floor so stale clients get `410` and bootstrap again.
+  - It also purges receipts after 90 days, sign-in challenges after 1 day, sessions 7 days after expiry, space content 30 days after deletion (the tenant row stays as a tombstone), a removed member's data 30 days after removal unless they rejoin, closed invitations after 30 days, and audit entries after 1 year.
+  - It runs every 6 hours in the API, or once with `api maintenance`. An advisory lock lets only one instance run at a time. Migration `0005_maintenance`.
+- **Metrics:** a dependency-free Prometheus registry on an internal port (`:9090`, never published), covering requests and latency per route pattern, sign-in and refresh outcomes, push results, database health, maintenance runs, and backup freshness. Labels never carry ids, addresses, or tokens.
+- **Operations:**
+  - Zero-downtime token-key rotation: the previous key still verifies access tokens and sync cursors.
+  - Readiness returns `503` while draining on shutdown.
+  - Every response carries `X-Alondra1-API-Version`.
+  - `api healthcheck` lets the distroless image report its health; the version is set at build time.
+- **Deployment profiles:**
+  - `tls`: Caddy with automatic HTTPS and HSTS. It replaces `X-Forwarded-For` so clients cannot spoof their address, blocks `/metrics`, and keeps URIs out of its logs.
+  - `backup`: daily `pg_dump`, restore-checked into a scratch database, then encrypted with age to a public key only (the server cannot decrypt). It writes checksums, keeps 35 days, and records its status for the alerts. `restore.sh` refuses to overwrite the live database without an explicit confirmation.
+  - `monitoring`: Prometheus with alert rules for API down, database down, error rate, latency, sign-in email failures, sign-in abuse, refresh reuse, stale backups and restore checks, stale maintenance, and conflict spikes.
+- **Release pipeline:** `release.yml`, triggered by an `api-v*` tag.
+  - It runs every check, builds versioned images, and publishes them with provenance and an SBOM.
+  - Trivy fails the release on fixable high or critical vulnerabilities, and cosign signs the images keylessly by digest.
+  - Production then waits for a human approval and shows the digests to deploy.
+  - Runbooks: [production](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/production.md), [backups and restores](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/backup-restore.md), [monitoring](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/monitoring.md), [release](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/release.md).
+- **CI additions:**
+  - Compose validation with every profile, checking that the database and metrics ports are not published and that the API binds to localhost.
+  - Caddyfile validation, `promtool` checks of the Prometheus config and alert rules, and `shellcheck` of the backup scripts.
+  - Image builds for the API and the backup sidecar.
+  - A real backup → decrypt → restore round trip.
+- **Verified here:**
+  - Go unit tests (metrics format, key rotation for tokens and cursors, metrics, draining, and version over HTTP) and `go vet` pass.
+  - The retention job's integration tests pass on PostgreSQL 17: what is purged and what is kept, the cursor floor, a second pass finding nothing, and the single-instance lock.
+  - All earlier integration suites pass, and `govulncheck` finds no vulnerabilities.
+- **Not verified here:** Docker and the PostgreSQL client tools are not installed on this machine. The Caddy, backup, and Prometheus configurations, the backup round trip, and the release workflow run only in CI, and the release workflow has never run (it needs a tag, GHCR, and a configured `production` environment).
+
+## Unreleased: cloud backend, Milestone E: sync (2026-11-22)
+
+- **Change log:**
+  - Every write to tasks, lists, groups, completion history, and settings, through REST or push, appends an entry in the same transaction.
+  - Writers of one space serialize on an advisory lock, so sequence numbers become visible in commit order.
+  - Migration `0004_sync`.
+- **Pull side:**
+  - `GET /v1/sync/bootstrap`: paged snapshot with a watermark.
+  - `GET /v1/sync/changes`: an ordered feed after a signed cursor bound to the user and the space. It carries only what the caller may see, and a cursor below the retention floor gets `410 CURSOR_EXPIRED`.
+- **Push:** `POST /v1/sync/push` takes up to 100 mutations, each `applied`, `conflict` (with the server copy), or `rejected`.
+  - Applied mutations are recorded per device and mutation id, so a retried batch never applies twice.
+  - An edit of a task deleted elsewhere is a visible conflict.
+- **Reference client:** `internal/cloudsync/client` is an offline-first client: local copy, outbox, conflict queue, bootstrap replay, and purge on lost access. [ADR 0005](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0005-sync-protocol.md) states the rules every client must follow.
+- **Found by the multi-device tests:** coalescing two offline edits with merge-patch application dropped a `null` ("remove from My Day"). Clients must compose patches; `tasks.ComposePatch` does this, with a unit test that composed equals sequential.
+- **Verified:**
+  - Go unit tests and vet are clean.
+  - Integration on PostgreSQL 17 covers a multi-device test with 11 scenarios:
+    - a second device bootstraps everything;
+    - a day of offline work syncs completely (coalesced edits, delete, atomic completion);
+    - concurrent offline edits give a visible conflict and are resolved by re-applying;
+    - delete-versus-edit is a visible conflict;
+    - a retried batch is replayed and not applied again;
+    - an expired cursor gives `410`, then a bootstrap that keeps the unsent outbox;
+    - the feed carries only what each member may see;
+    - cursors are bound to their user and space and cannot be forged;
+    - bootstrap paging returns each item exactly once;
+    - 20 concurrent writers produce a complete, ordered feed;
+    - a removed member's device purges the space and keeps unsent edits aside.
+  - The built API applied all four migrations.
+- **Not done yet:** the Windows cloud adapter and UI; Docker, mailpit, and CI on this machine.
+
+## Unreleased: mail connection fixes (2026-11-22)
+
+Found with two real mailboxes on a provider that uses Implicit TLS everywhere (IMAP 993, POP3 995, SMTP 465) and keeps its special folders under `INBOX.` (for example `INBOX.INBOX.Sent`).
+
+- **Port and security mismatches** (the reported POP3 and SMTP sync errors):
+  - A manual account defaulted outgoing to 587 with STARTTLS, and switching incoming to POP3 kept the IMAP port 993. SMTP on 465 with STARTTLS timed out after 30 s with "The server could not be reached", and POP3 with STARTTLS on 995 hung for more than 60 s.
+  - New `PortAdvisor` rules: saving refuses a contradiction with the exact fix (for example "Outgoing SMTP port 465 uses Implicit TLS…").
+  - A saved contradiction fails at once (12 ms instead of a 30–60 s timeout) with the same message.
+  - The account dialog keeps port, protocol, and security consistent as you edit.
+- **Sent, Drafts, Trash, Archive** on servers with nested or differently named special folders:
+  - The configured name was opened by path, which throws when the folder does not exist, and the error was swallowed. Sent copies were silently not stored; saving drafts, deleting to Trash, and archiving failed.
+  - These folders are now found by exact path, then the server's special-use flag, then display name, and created only as a last resort.
+- **POP3 sender:** the list showed the raw `From` header (`Name <address>`). It now shows the display name and keeps the address, like IMAP.
+- **`--sync` switch:** syncs every account once at start-up, as F5 does (diagnostics).
+- **Verified:**
+  - Windows: 135 passed, 6 skipped (opt-in). New `PortAdvisorTests` cover the rules, saving, and connection refusal.
+  - `LiveMailTests` against the two real accounts: 5 passed. They covered:
+    - probes for IMAP, POP3, and SMTP;
+    - sending from account 1 to account 2 with the copy stored in `INBOX.INBOX.Sent`;
+    - sync over POP3 and IMAP in Online and Personal mode;
+    - a draft saved to `INBOX.INBOX.Drafts`;
+    - a deletion moved to `INBOX.INBOX.Trash`;
+    - mismatches refused at once.
+  - The real app, started with `--sync` against both accounts, showed "Up to date" and the merged inbox.
+  - Archive was not run against the live server.
+
+## Unreleased: cloud backend, Milestone D (2026-11-22)
+
+- **Tasks in the cloud:**
+  - Groups, lists, tasks, and completion history are stored in the exact todo-v1 shape the Windows app writes, with the client's ids. Dates, local times, and instants stay as sent.
+  - Private to each user within a space. Owners and admins cannot read members' tasks.
+  - Every record has a version. Writes need `If-Match`, and a stale write returns the server copy instead of overwriting it.
+  - References between records are checked, and deleting a group or list cascades (the default list cannot be deleted). Deletes leave tombstones.
+  - A completion record can be appended atomically with a task change, and retrying it does not duplicate it.
+  - Reminder delivery state and group collapse stay on each device.
+- **Settings:** allowlisted namespaces with strict schemas: `appearance` and `todo.preferences` per user, `space.profile` per space.
+- **Export:** `GET /v1/data/export` returns everything of the caller, with tasks as `alondra1-todo` documents.
+- **Decisions:** [ADR 0004](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0004-cloud-task-storage.md); migration `0003_tasks`.
+- **Routing:** a JSON 405 now comes from one catch-all that checks other methods, because per-path fallbacks conflicted with wildcard routes.
+- **Verified:**
+  - Go unit tests pass: validation against the Windows golden fixture plus negative cases, merge patch, and the settings allowlists.
+  - An end-to-end HTTP test with four users on PostgreSQL 17 covers:
+    - enrolling the Windows fixture with its values intact;
+    - privacy towards members and admins;
+    - the same id held by different users;
+    - references across users rejected;
+    - `If-Match`, conflicts, and two concurrent edits where exactly one wins;
+    - atomic, idempotent completion;
+    - cascades and tombstones;
+    - settings versions and roles;
+    - the export;
+    - a removed member losing access at once.
+  - Windows: 120 passed, 1 skipped. A new test imports a cloud-shaped document (device-local fields removed) into the app.
+  - The built API applied all three migrations at startup.
+- **Not verified:** Docker, mailpit, and CI on this machine. The Windows app does not use the backend yet.
+
+## Unreleased: cloud backend, Milestone C and review fixes (2026-11-22)
+
+- **Review fixes (Milestone B):**
+  - The database connection now enforces `ALONDRA1_DB_SSLMODE`. The default `require` was silently treated as "prefer", which can fall back to an unencrypted connection. `prefer` and `allow` are now refused.
+  - Request logs record the route pattern instead of the raw path, so tokens in a path never reach the logs.
+  - A wrong HTTP method now returns a JSON `405 METHOD_NOT_ALLOWED` with `Allow`, instead of plain text.
+- **Spaces (Milestone C):**
+  - Personal, Family, and Organization spaces, with owner, admin, and member roles.
+  - Emailed invitations: 7 days, one use, only for the invited address, and the token never appears in API responses.
+  - Removing members, leaving, and ownership transfer. A space with members always keeps an owner, also under concurrent requests.
+  - Device list and revocation.
+  - Account deletion: refused while you are the only owner of a space that still has other members. Otherwise the address is pseudonymized so it can sign up again.
+  - Retention policy: [ADR 0003](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0003-retention.md). Migration `0002_tenancy`. See [backend/README.md](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/API.md#spaces-spec-5).
+- **Verified:**
+  - `go vet` is clean and the unit tests pass, including the role and permission matrix, the SSL-mode handling, and the absence of path tokens in logs.
+  - An end-to-end HTTP test with several users on a real PostgreSQL 17 covers:
+    - an outsider gets `404` for every space operation, even with the right id;
+    - an invitation works only for the invited address, and only once;
+    - members cannot manage the space, and nobody can invite above their own role;
+    - admins cannot remove owners or change roles;
+    - invitations can be revoked and they expire;
+    - the last owner is protected, and ownership can be transferred;
+    - two owners demoting each other at the same time leave exactly one owner;
+    - a device can be revoked;
+    - account deletion is blocked while you are the only owner of a space with members, then releases the address.
+  - The built API applied both migrations at startup against PostgreSQL.
+- **Not verified:** Docker, mailpit, and the CI workflows are still not run on this machine. The Windows app does not use the backend.
+
+## Unreleased: monorepo and cloud backend, Milestones A and B (2026-11-21)
+
+Work toward the optional cloud in [BACKEND_SPEC.md](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/BACKEND_SPEC.md). The Windows app does not use the backend yet, and nothing here is production-ready.
+
+- **Monorepo (Milestone A):**
+  - The Windows app moved to `apps/windows` with history-preserving moves. Its paths, the Inno Setup `AppId`, and the `%LOCALAPPDATA%\alondra1` data folder are unchanged.
+  - Decisions: [0001 opt-in cloud](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0001-opt-in-cloud.md) and [0002 local/cloud task boundary](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0002-local-cloud-task-boundary.md).
+  - Shared contract: `packages/api-contract/schemas/todo-v1.schema.json`, generated from `TodoModels.cs`, plus a golden fixture written by the Windows serializer. `TodoTask.SubtaskProgress` is no longer written to JSON exports. It was a derived value that serialized as an empty object and was ignored on import.
+  - `compose.yaml` (API + PostgreSQL 17 on an internal network, no database port, localhost-only API, optional mailpit), `.env.example`, `secrets/` (ignored), `scripts/new-dev-secrets.ps1`, and CI workflows.
+  - Android and iOS are placeholders only.
+- **Backend (Milestone B):** Go API with secret-file configuration, database retry, forward-only migrations, SMTP delivery, and email one-time-code sign-in with rotating refresh tokens and reuse detection. See [backend/README.md](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/API.md).
+- **Verified:**
+  - Windows, from `apps/windows`: 119 passed, 1 skipped (the opt-in 10 GB mailbox test). This includes 16 new contract tests.
+  - Backend: `go vet` clean. Unit tests pass for configuration, sign-in rules (expiry, attempts, replay, supersession, cooldown and hourly, per-IP and global limits, rotation and reuse, logout), the HTTP error contract, log redaction, OpenAPI routing, and SMTP against an in-process server.
+  - Integration tests against a real PostgreSQL 17 (embedded) cover migrations, downgrade refusal, the store contract including concurrent one-time consumption, and the full sign-in flow.
+  - The built API binary was started against PostgreSQL: it applied the migration, served `/v1/health/live` and `/v1/health/ready`, returned `503 EMAIL_DELIVERY_FAILED` with no reachable SMTP server, and logged the address only redacted.
+- **Not verified:** Docker is not installed on the build machine, so `docker compose config`, the API image build, the CI workflows, and email delivery through mailpit or a real relay have not been run. The OpenAPI file has not been linted (no Node.js here). CI does both.
+
+## Unreleased: spacing, alignment, and workspace tabs (2026-11-21)
+
+- **Spacing contract:** the toolbar and content are inset 10 px from the window; header → toolbar → content gaps are 8 px; Mail panes have exactly one 8 px gutter (the splitter hit target) and 16 px inner padding. Values are tokens in `Themes/Controls.xaml`; see [UI-DESIGN.md](UI-DESIGN.md#spacing-contract).
+- **Alignment:** account selector, status chip, and folder tabs share one 36 px height and center line, with 16 px between groups. The list's title row and the reader's status row are both 48 px. From / Subject / Received share their columns with the message rows, also when the scroll bar shows. Selected tabs no longer turn bold, so they keep their size.
+- **Workspace tabs:** Mail, Calendar, To-do, Notes, Contacts, and Chat are rounded, browser-style tabs in the header. Labels hide below 1200 px, search collapses below 860 px, and modules overflow below 720 and 560 px.
+- **Also in this build:** delete an account (Settings → Accounts → Delete) and the Ocean background.
+- **Verified:**
+  - `dotnet test Alondra1.slnx`: 103 passed, 1 skipped. New tests cover the spacing and tab tokens, the shell rows, shared mail columns, tab styles without geometry changes, and one 8 px gutter in all 25 dock combinations.
+  - Demo snapshots of Mail at 1400 px (light and dark), and in dark at 1199, 1120, 860, 760, 700, 640, 560, and 470 px; To-do (light) and Calendar (dark) at 1400 px.
+  - Not checked: display scaling other than 100%, maximize/restore, and a screen reader. At about 470 px the Mail folder selector is still partly covered by New.
+
+## 1.3.0: Alondra1 everywhere (2026-11-21)
+
+- **Naming:** every identifier now uses the Alondra1 name.
+  - Projects and namespaces are `Alondra1.*`, the solution is `Alondra1.slnx`, and the setup script is `installer/alondra1.iss`.
+  - The data folder is `%LOCALAPPDATA%\alondra1`.
+  - Other identifiers: the DPAPI entropy and OAuth token keys, the Microsoft To Do list the adapter creates (`alondra1`), the task export format (`alondra1-todo`), generated Message-IDs (`@alondra1.local`), and the backup extension (`.atodo`).
+- **Breaking change:** this release starts with a fresh data folder. Settings, local mail, tasks, and saved sign-ins from earlier builds are not carried over. Add accounts again, and import tasks from a JSON export if needed. The setup `AppId` is unchanged, so the installer still upgrades the installed program in place.
+- **Docs:** reorganized into [FEATURES](FEATURES.md), [ARCHITECTURE](ARCHITECTURE.md), [CODE-GUIDE](CODE-GUIDE.md), and [GUIDELINES](GUIDELINES.md). Logo files are in `docs/images`, and every screenshot was retaken.
+- **Verified:**
+  - `dotnet test Alondra1.slnx`: 97 passed, 1 skipped (the opt-in 10 GB mailbox test).
+  - The demo was rendered in Mail, Calendar, To-do, Notes, and Contacts, in light and dark, and at 560 px wide. Header 56 px, toolbar 48 px. No crash was logged.
+  - The setup was rebuilt.
+
+## 1.2.0: Alondra1 brand, logo, palette, and setup wizard (2026-11-21)
+
+- **Brand and logo:**
+  - The product name is Alondra1: window title, header wordmark, Start menu and desktop shortcuts, Settings → Apps, `Alondra1.exe`, `Alondra1-setup.exe`, dialogs, and notifications.
+  - The logo is a lavender-blue bird, cut out onto a transparent background (`Assets/alondra1.ico` 16–256 px, `logo-64.png`).
+- **Palette:** rebuilt from the logo's lavender and peach. See [UI-DESIGN.md](UI-DESIGN.md). Contrast is checked by `UiDesignTests`.
+- **Backgrounds:** pictures are more visible by default (Misty mountains, 85% opacity, 2 px blur), and brightness adapts to the theme.
+- **Setup wizard:**
+  - A Welcome and Finish side panel shows the bird on a lavender gradient, the wordmark, and "Mail · Calendar · To-do", and the bird appears in the inner page headers.
+  - Text uses the app's colors.
+  - The images are rendered for every Windows scale from 100% to 250% by `installer/branding/make-branding.ps1`.
+- **Verified:**
+  - The Welcome and Destination pages of the built setup were opened at 200% scale and captured. Setup was then cancelled.
+  - The Finish page was not opened, because that requires an install.
+  - The wizard stays light in Windows dark mode, matching its artwork.
+
+## 1.1.x: Local To-do and UI modernization (2026-11-21)
+
+**Local To-do**
+
+- **Automated tests:** 82 passed, 1 skipped, and 62 of them cover local tasks:
+  - task and list operations with undo, and a failed write leaving memory unchanged;
+  - steps, groups, bulk actions, and drag-and-drop ordering;
+  - recurrence: month-end and leap-day clamping, weekday sets, intervals, end dates, and no duplication on completion;
+  - smart views, search, filters, sorting, statistics, and natural-language dates;
+  - reminders with snooze and dismiss, including the Eastern Time DST gap and overlap;
+  - calendar ranges and rescheduling;
+  - SQLite persistence across restarts, migration with a pre-migration copy, and refusal of newer files;
+  - backup and restore, attachment path safety, and JSON import validation with id remapping;
+  - CSV and iCalendar output;
+  - task code not using network APIs;
+  - 10,000 tasks.
+- **Demo window, checked through UI Automation:**
+  - every smart view, quick add ("Call Sam tomorrow at 3pm"), details, steps, undo, and reordering;
+  - keyboard shortcuts, cross-list search, and the month, week, and day calendars;
+  - the Summary view, Account tasks, and the narrow-window sidebar.
+- **Not checked:** a Windows notification actually appearing, printing to a physical printer, and screen readers.
+
+**UI modernization**
+
+- **New layout and styling:**
+  - two rows above the content: a header with modules and search, and a toolbar per module;
+  - design tokens for radius, spacing, and control heights;
+  - 62 custom icons;
+  - built-in and custom backgrounds;
+  - themed dialogs and title bars;
+  - a responsive header for narrow windows.
+- **Tests added:** the two-row shell, height tokens, matching palettes, WCAG contrast, icon validity, background defaults and file checks, and no network addresses in app markup.
+- **Fixed while checking:** the reading pane clipped instead of wrapping, list text was black in the dark theme, and the toolbar did not fill its row.
+- **Not checked:** menus and drop-downs on screen (popups are not part of snapshots), and screen readers.
+
+## 1.0: Mail client
+
+- `dotnet test` passed. The tests cover:
+  - all 25 folder and reader dock combinations;
+  - configuration rejection and recovery, and import rules;
+  - plaintext and OAuth policy;
+  - SMTP uncertainty, POP UIDL, and IMAP UIDVALIDITY;
+  - HTML sanitizing and mode changes;
+  - scoped full-text search, and Online mode not writing messages;
+  - an uncertain outbox item surviving a database reopen;
+  - 10,000 messages indexed and searched within limits.
+- The demo window was confirmed through UI Automation: folders on top, compact list, unread state, the reading pane, and the toolbar commands.
+
+## Not verified yet
+
+These checks need environments that were not available. The client implements the behavior, and the automated tests cover the decision logic.
+
+| Check | Why it is still open |
+| --- | --- |
+| Install, upgrade, and uninstall on Windows 10 21H2 LTSC and 22H2 | Those OS versions were not available. |
+| Windows 11 25H2 specifically | The test PC runs build 26300 (26H2). |
+| Microsoft 365 and Gmail sign-in on consented test accounts | No app registration or test mailbox was configured. Setup is in [OAUTH-SETUP.md](OAUTH-SETUP.md). |
+| Plaintext confirmation, required STARTTLS failure, and certificate rejection against a controlled server | Needs a lab server. The client uses MailKit `SecureSocketOptions.StartTls` (not the optional upgrade) and the default OS trust check. |
+| A real SMTP session that disconnects after an unknown acceptance | The state machine and outbox restart were tested with a fake gateway. |
+| Provider read and write for Calendar, To Do, Tasks, People, and app-folder notes, including denied consent | No live tenant was available. |
+| Scroll timing and memory with 10,000 messages in the window | `--perf` seeds the index and records `perf.txt`. An interactive scroll pass was not completed. |
+| Upgrading an installed package with a queued outbox | The database keeps queued operations across restarts. An installed upgrade was not run on a second OS. |
+
+## Packaging
+
+```powershell
+./installer/publish.ps1
+```
+
+This publishes a self-contained x64 build and compiles `artifacts/Alondra1-setup.exe` with Inno Setup.
+
+The setup installs per user to `%LOCALAPPDATA%\Programs\Alondra1`, adds the Alondra1 Start menu shortcut, and registers uninstall in Settings → Apps. It never touches `%LOCALAPPDATA%\alondra1`, so updates and uninstalls keep settings, local mail, tasks, secrets, and attachment files.
+
+Microsoft's Windows support for .NET is documented at https://learn.microsoft.com/dotnet/core/install/windows.

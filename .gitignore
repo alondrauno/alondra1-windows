@@ -1,0 +1,31 @@
+# .NET build output
+bin/
+obj/
+artifacts/
+TestResults/
+*.binlog
+coverage*.xml
+*.coverage
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.rsuser
+*.DotSettings.user
+
+# Local test configuration and credentials (scripts/reinstall-local.ps1, LiveMailTests). Never commit these.
+.import/
+.test
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

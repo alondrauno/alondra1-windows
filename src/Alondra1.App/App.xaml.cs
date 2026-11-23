@@ -1,0 +1,73 @@
+﻿using System.IO;
+using System.Windows;
+using Alondra1.App.ViewModels;
+using Alondra1.Core.Config;
+
+namespace Alondra1.App;
+
+public partial class App : Application
+{
+    public static AppServices Services { get; private set; } = null!;
+    public static string[] Arguments { get; private set; } = [];
+
+    private async void OnStartup(object sender, StartupEventArgs e)
+    {
+        Arguments = e.Args;
+        Alondra1.Mail.MimeHeaders.EnsureCharsets();
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
+        DispatcherUnhandledException += (_, args) =>
+        {
+            try
+            {
+                var log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "alondra1", "logs");
+                Directory.CreateDirectory(log);
+                File.WriteAllText(Path.Combine(log, "crash.txt"), args.Exception.ToString());
+            }
+            catch (IOException)
+            {
+            }
+
+            MessageBox.Show(args.Exception.Message, "Alondra1", MessageBoxButton.OK, MessageBoxImage.Error);
+            args.Handled = true;
+            Shutdown();
+        };
+        var home = Arguments.FirstOrDefault(argument => argument.StartsWith("--home=", StringComparison.Ordinal))?.Substring("--home=".Length);
+        var demo = Arguments.Contains("--demo");
+        if (demo || Arguments.Contains("--perf"))
+            home = Path.Combine(Path.GetTempPath(), "alondra1-fixtures", Guid.NewGuid().ToString("N"));
+        try
+        {
+            Services = await AppServices.CreateAsync(home);
+        }
+        catch (ConfigFormatException ex)
+        {
+            MessageBox.Show(ex.Message, "Alondra1", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown();
+            return;
+        }
+
+        Services.Config.DemoMode = demo;
+        // Unattended setup (milestone reinstall check). With --exit and nothing else to show, the app stops here.
+        if (!demo && CommandLineSetup.Requested(Arguments))
+        {
+            var code = await CommandLineSetup.RunAsync(Services, Arguments);
+            var showWindow = Arguments.Any(argument => argument is "--sync" or "--perf" || argument.StartsWith("--snapshot=", StringComparison.Ordinal));
+            if (code != 0 || (Arguments.Contains("--exit") && !showWindow))
+            {
+                Shutdown(code);
+                return;
+            }
+        }
+
+        // Diagnostics for demo runs: --theme=light|dark overrides the theme for this session only.
+        if (demo && Arguments.FirstOrDefault(argument => argument.StartsWith("--theme=", StringComparison.Ordinal)) is { } theme
+            && Enum.TryParse<ThemePreference>(theme["--theme=".Length..], ignoreCase: true, out var forced))
+            Services.Config.Appearance.Theme = forced;
+        ThemeService.Apply(Services.Config.Appearance);
+        // The message reader's browser profile lives with the app's data (a temporary folder in demo mode).
+        Alondra1.App.Controls.MailBodyView.UserDataFolder = Path.Combine(Services.Home, "webview");
+        var window = new MainWindow(new MainViewModel(Services));
+        MainWindow = window;
+        window.Show();
+    }
+}
