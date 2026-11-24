@@ -56,6 +56,42 @@ public sealed class AppConfig
     public OAuthClientSettings OAuth { get; set; } = new();
     public List<AccountConfig> Accounts { get; set; } = [];
     public bool DemoMode { get; set; }
+    public CloudSettings Cloud { get; set; } = new();
+    public NotesSettings Notes { get; set; } = new();
+}
+
+/// <summary>Notes module preferences (local to this PC).</summary>
+public sealed class NotesSettings
+{
+    /// <summary>Days a note stays in Trash before it is deleted for good (0 = keep until emptied).</summary>
+    public int TrashRetentionDays { get; set; } = 30;
+    public Alondra1.Core.Notes.NoteSort Sort { get; set; } = Alondra1.Core.Notes.NoteSort.Modified;
+    public bool Descending { get; set; } = true;
+    public bool ShowFolders { get; set; } = true;
+    public bool ShowList { get; set; } = true;
+    /// <summary>Largest picture that can be added, in MB.</summary>
+    public int MaxPictureMB { get; set; } = 20;
+}
+
+/// <summary>Optional Alondra1 cloud (account, Cloud Sync, Mail Archive). Never contains tokens; those are kept with DPAPI.</summary>
+public sealed class CloudSettings
+{
+    public const string Production = "https://api.alondra1.com";
+
+    /// <summary>API address. HTTPS only; plain HTTP is accepted for a development server on this PC.</summary>
+    public string BaseUrl { get; set; } = Production;
+
+    /// <summary>Minutes between background syncs while Cloud Sync is on.</summary>
+    public int SyncMinutes { get; set; } = 5;
+
+    /// <summary>The address in effect: ALONDRA1_CLOUD_URL (for development and staging) overrides the setting.</summary>
+    public Uri EffectiveUri()
+    {
+        var value = Environment.GetEnvironmentVariable("ALONDRA1_CLOUD_URL");
+        if (string.IsNullOrWhiteSpace(value))
+            value = string.IsNullOrWhiteSpace(BaseUrl) ? Production : BaseUrl;
+        return new Uri(value.TrimEnd('/') + "/");
+    }
 }
 
 public sealed class AppearanceSettings

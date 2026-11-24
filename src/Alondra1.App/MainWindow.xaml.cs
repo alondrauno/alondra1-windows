@@ -36,6 +36,7 @@ public partial class MainWindow : Window
         SetGrouping(model.Messages, nameof(StoredMessage.AccountId), model.Config.Appearance.GroupMailByAccount);
         model.ComposeRequested += ShowCompose;
         model.SettingsRequested += () => Dialogs.ShowSettings(this, model);
+        Loaded += async (_, _) => await model.Cloud.StartAsync();
         model.AccountRequested += account => Dialogs.ShowAccount(this, model, account);
         model.ConnectionChanged += UpdateStatusDot;
         model.Todo.SearchFocusRequested += FocusSearch;
@@ -137,8 +138,7 @@ public partial class MainWindow : Window
         ViewAccountBox.SelectedItem = _model.SelectedAccount;
         HiddenFolderBox.ItemsSource = _model.Folders;
         SyncFolderSelectors(_model.SelectedFolder);
-        NoteBox.ItemsSource = _model.NoteTitles;
-        NoteBox.SelectedItem = _model.SelectedNoteTitle;
+        NoteSortBox.SelectedIndex = (int)_model.Notes.Sort;
         FolderDockBox.SelectedItem = _model.FoldersDock.ToString();
         ReaderDockBox.SelectedItem = _model.ReadingDock.ToString();
         DensityBox.SelectedItem = _model.Config.Appearance.Density.ToString();
@@ -328,6 +328,9 @@ public partial class MainWindow : Window
             if (_model.IsMail && ReaderBody.Surface is FrameworkElement surface && surface.IsVisible
                 && (await ReaderBody.CaptureAsync() ?? Shell.Snapshot.CaptureScreen(surface)) is { } picture)
                 overlays.Add((surface, picture));
+            if (_model.IsNotes && NotesPanel.EditorSurface is { IsVisible: true } noteSurface
+                && (await NotesPanel.CaptureEditorAsync() ?? Shell.Snapshot.CaptureScreen(noteSurface)) is { } notePicture)
+                overlays.Add((noteSurface, notePicture));
             Trace("Shell.Snapshot.RenderElement((");
             Shell.Snapshot.RenderElement((FrameworkElement)Content, path, overlays);
             var geometry = Shell.GeometryCheck.Run(new Shell.GeometryCheck.Parts(this, Header, Toolbar, ContentArea,
@@ -452,6 +455,8 @@ public partial class MainWindow : Window
         }
         else if (_model.IsTasks)
             _model.Todo.ApplySearch(text);
+        else if (_model.IsNotes)
+            _model.Notes.ApplySearch(text);
         else if (_model.IsContacts)
             _model.ApplyContactQuery(text);
     }
@@ -721,6 +726,15 @@ public partial class MainWindow : Window
         }
 
         menu.Items.Add(Command("Sync now", "Refresh", _model.SyncCommand, "F5"));
+        if (_model.SelectedMessage is not null && _model.Notes.IsAvailable)
+        {
+            menu.Items.Add(Command("Create note from this email", "Notes", null, action: () => _ = _model.CreateNoteFromMailAsync(withPictures: false)));
+            if (_model.Attachments.Any(a => a.IsPicture))
+                menu.Items.Add(Command("Create note with its pictures", "Image", null, action: () => _ = _model.CreateNoteFromMailAsync(withPictures: true)));
+        }
+
+        if (_model.Cloud.Available && _model.SelectedMessage is not null && !_model.IsDemo)
+            menu.Items.Add(Command("Archive to Alondra1 Cloud", "Upload", null, action: () => _ = _model.ArchiveToCloudAsync()));
         menu.Items.Add(_model.ShowingHtml
             ? Command("Show plain text", "Notes", _model.ShowPlainCommand)
             : Command("Show HTML", "Mail", _model.ShowHtmlCommand));
@@ -743,14 +757,11 @@ public partial class MainWindow : Window
         return item;
     }
 
-    private void NoteBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void NoteSortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_filling || NoteBox.SelectedItem is not string title)
-            return;
-        _model.SelectNote(title);
+        if (!_filling && NoteSortBox.SelectedIndex >= 0 && NoteSortBox.SelectedIndex != (int)_model.Notes.Sort)
+            _model.Notes.SetSort(NoteSortBox.SelectedIndex);
     }
-
-    private void Note_LostFocus(object sender, RoutedEventArgs e) => _model.SaveNoteCommand.Execute(null);
 
     /// <summary>After Settings → Mail changed density or pane positions: sync View settings and redraw the list.</summary>
     public void RefreshLayoutSelectors()
@@ -884,6 +895,19 @@ public partial class MainWindow : Window
         {
             if (TodoPanel.HandleKey(e))
                 e.Handled = true;
+            return;
+        }
+
+        if (_model.IsNotes)
+        {
+            if (NotesPanel.HandleKey(e))
+                e.Handled = true;
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key is Key.E or Key.F)
+            {
+                FocusSearch();
+                e.Handled = true;
+            }
+
             return;
         }
 

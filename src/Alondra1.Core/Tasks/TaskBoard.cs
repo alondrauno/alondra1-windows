@@ -407,6 +407,27 @@ public sealed class TaskBoard
         await CommitAsync(description, changes).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// Used by Cloud Sync when this PC's default Tasks list never synced and the cloud already has one: the tasks move to
+    /// the cloud's list and the local default is removed, in one change (undoable).
+    /// </summary>
+    public async Task MergeDefaultListAsync(string localDefaultId, string cloudDefaultId)
+    {
+        if (localDefaultId == cloudDefaultId || !_lists.ContainsKey(localDefaultId) || !_lists.TryGetValue(cloudDefaultId, out var target) || !target.IsDefault)
+            return;
+        var changes = new TodoChangeSet();
+        foreach (var task in _tasks.Values.Where(item => item.ListId == localDefaultId))
+        {
+            var moved = task.Clone();
+            moved.ListId = cloudDefaultId;
+            moved.ModifiedUtc = Now;
+            changes.UpsertTasks.Add(moved);
+        }
+
+        changes.DeleteLists.Add(localDefaultId);
+        await CommitAsync("Use the cloud's Tasks list", changes).ConfigureAwait(true);
+    }
+
     /// <summary>Deleting a list deletes the tasks in it (undo restores both). The default list cannot be deleted.</summary>
     public async Task DeleteListAsync(string id)
     {
@@ -579,6 +600,38 @@ public sealed class TaskBoard
             throw new TodoStorageException("The change could not be saved, so nothing was changed. " + ex.Message, ex);
         }
 
+        ApplyToMemory(changes);
+    }
+
+    /// <summary>
+    /// Applies changes that came from Alondra1 Cloud: stored with their server versions and the new cursor in one
+    /// transaction, not queued for upload, not undoable. The undo history is cleared, so an undo can never revert a
+    /// newer change from another device.
+    /// </summary>
+    public async Task ApplyRemoteAsync(TodoChangeSet changes, IReadOnlyCollection<Alondra1.Core.Cloud.SyncVersion> versions, string? cursor)
+    {
+        if (_store is not Alondra1.Core.Cloud.ICloudSyncStore cloud)
+            throw new InvalidOperationException("This task store does not support Cloud Sync.");
+        foreach (var task in changes.UpsertTasks)
+            Normalize(task);
+        try
+        {
+            await cloud.ApplyRemoteAsync(changes, versions, cursor, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not TodoStorageException)
+        {
+            throw new TodoStorageException("Changes from the cloud could not be saved; nothing was changed. " + ex.Message, ex);
+        }
+
+        ApplyToMemory(changes);
+        if (changes.IsEmpty)
+            return;
+        _undo.Clear();
+        Changed?.Invoke();
+    }
+
+    private void ApplyToMemory(TodoChangeSet changes)
+    {
         foreach (var id in changes.DeleteTasks)
             _tasks.Remove(id);
         foreach (var id in changes.DeleteLists)

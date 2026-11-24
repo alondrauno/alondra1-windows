@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alondra1.com/schemas/note-document-v1.schema.json",
+  "title": "Alondra1 note document (v1)",
+  "description": "The canonical rich-text form of a note: a ProseMirror/Tiptap-style JSON node tree shared by the Windows and Android apps (alondra1-notes-editor docs/DOCUMENT-FORMAT.md). HTML is only produced for clipboard and export. A document with a higher schemaVersion than a client supports is shown read-only and never rewritten.",
+  "type": "object",
+  "required": [
+    "type",
+    "schemaVersion"
+  ],
+  "properties": {
+    "type": {
+      "const": "doc"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "content": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "attrs": {
+          "type": "object"
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "text": {
+          "type": "string"
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mark"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "image"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "attrs": {
+                "$ref": "#/$defs/imageAttrs"
+              }
+            }
+          }
+        }
+      ],
+      "description": "A document node. Known types (schema version 1): paragraph, text, heading (attrs.level 1-3), blockquote, codeBlock, horizontalRule, hardBreak, bulletList, orderedList (attrs.start), listItem, taskList, taskItem (attrs.checked: boolean), table, tableRow, tableHeader, tableCell (attrs.colspan, rowspan, colwidth, backgroundColor), image. paragraph and heading may carry attrs.textAlign (left|center|right|justify), attrs.indent (1-8) and attrs.spacing (compact|relaxed). Unknown types are allowed and must be kept unchanged by clients that do not understand them."
+    },
+    "mark": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "attrs": {
+          "type": "object"
+        }
+      },
+      "description": "Known marks: bold, italic, underline, strike, code, link (attrs.href: http, https, mailto, tel or alondra:// only), textStyle (attrs.color, fontSize like '14pt', fontFamily), highlight (attrs.color). Unknown marks must be kept unchanged."
+    },
+    "imageAttrs": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4000
+        },
+        "alignment": {
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ]
+        },
+        "caption": {
+          "type": "string"
+        },
+        "alt": {
+          "type": "string"
+        },
+        "remoteSrc": {
+          "type": "string",
+          "pattern": "^https?://",
+          "description": "A picture pasted from the web that the user has not loaded yet (never fetched automatically)."
+        }
+      },
+      "not": {
+        "required": [
+          "src"
+        ]
+      },
+      "description": "Pictures reference a separately stored asset by SHA-256; image data is never embedded in the document."
+    }
+  }
+}

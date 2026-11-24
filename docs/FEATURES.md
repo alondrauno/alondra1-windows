@@ -93,8 +93,45 @@ A complete task manager that works **without any account or network**. Data is s
 
 ![Notes](screenshots/notes.png)
 
-- Notes stored in the connected account's private app folder (OneDrive app folder or Google Drive app data, not OneNote or Keep).
-- Choose a note, edit it, create a new note, and save.
+Local rich-text notes, stored in todo.db on this PC. No account or connection is needed. Details: [NOTES.md](NOTES.md).
+
+- **Layout.** Three panes:
+  - left: All notes, Favorites, your folders (nested, with counts), Archive and Trash;
+  - middle: the note list, with previews, dates, favorite and pin marks, and picture thumbnails;
+  - right: the editor.
+
+  The lists can be hidden to focus on the note; below 900 px the panes show one at a time.
+- **Editor formatting:**
+  - bold, italic, underline, strikethrough, inline code;
+  - fonts (Segoe UI, Arial, Calibri, Georgia, monospace) and sizes from 8 to 72 pt;
+  - text color (palette or any hex) and highlight;
+  - headings 1–3, alignment, indent, paragraph spacing;
+  - links, quote, code block, divider;
+  - undo/redo, clear formatting, find in note (Ctrl+F).
+- **Lists:** bulleted, numbered and checklists, nested with Tab and Shift+Tab. A checklist item can become a To-do task, and the item then links to the task.
+- **Tables:**
+  - insert with a size grid;
+  - add or remove rows and columns;
+  - header row, cell colors, column resizing;
+  - multi-cell selection and copy and paste.
+- **Pictures:**
+  - add with the picker, drag and drop or paste;
+  - resize keeping the aspect ratio, align, add a caption;
+  - stored once, by content hash.
+
+  Pictures in pasted web content are not downloaded until you click **Load picture**.
+- **Organizing:**
+  - create, rename (the title), duplicate, move (menu or drag onto a folder), favorite, pin, archive;
+  - Trash, kept for 30 days, with restore and permanent delete;
+  - sort by last edited, date created or title;
+  - multi-select;
+  - full-text search across titles and text (the header search box).
+- **Links to other items:** link a note to a task, a calendar event or a contact (**Link**), or create a note from an email (Mail → More → **Create note from this email**, optionally with its pictures). Linked items open from the chips above the note; a deleted item is reported as unavailable.
+- **Import and export:**
+  - export as a self-contained HTML file or as Markdown with a picture folder;
+  - import an HTML file as a new note;
+  - import the plain-text notes that earlier versions kept in mail accounts.
+- **Cloud Sync:** with Cloud Sync on, notes, folders and pictures sync with the Android app and other PCs. If the same note changed on two devices, both versions are kept.
 
 ## Contacts (Ctrl+5)
 

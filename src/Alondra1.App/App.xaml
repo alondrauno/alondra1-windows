@@ -14,6 +14,7 @@
       <conv:IndentConverter x:Key="IndentConverter"/>
       <conv:NotNullToVisibilityConverter x:Key="NotNullVis"/>
       <conv:ZeroToVisibilityConverter x:Key="ZeroVis"/>
+      <conv:ThumbnailConverter x:Key="Thumbnail"/>
     </ResourceDictionary>
   </Application.Resources>
 </Application>

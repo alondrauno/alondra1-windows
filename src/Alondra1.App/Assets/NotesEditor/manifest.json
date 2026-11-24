@@ -1,0 +1,11 @@
+{
+  "name": "alondra1-notes-editor",
+  "version": "1.0.0",
+  "schemaVersion": 1,
+  "tiptap": "3.32.3",
+  "files": {
+    "editor.html": "7b605bdfcfbc291151248477049d6f1309087d75a4aa4b5d8290f0f226a802b0",
+    "editor.js": "e5153f1134629634fd9e4b9826a2094985c7f9d15b92a6e95d8b0fc232f5e712",
+    "editor.css": "77a16b84ea3a51d153f90f54375e5bfe359626c3ce17cdd20571a1eea2a3827a"
+  }
+}

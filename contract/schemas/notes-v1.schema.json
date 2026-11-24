@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alondra1.com/schemas/notes-v1.schema.json",
+  "title": "Alondra1 note (v1)",
+  "description": "A note, private to its owner within a space. Plain-text notes (title/body) from older clients stay valid; rich notes add doc (note-document-v1), folder, favorite/archive/trash state, picture assets and links. Written by the Windows and Android apps and synced through /v1/sync and /v1/notes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id"
+  ],
+  "anyOf": [
+    {
+      "properties": {
+        "title": {
+          "minLength": 1
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    {
+      "properties": {
+        "body": {
+          "minLength": 1
+        }
+      },
+      "required": [
+        "body"
+      ]
+    },
+    {
+      "required": [
+        "doc"
+      ]
+    }
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$",
+      "description": "Client id: 32 lowercase hex characters from Alondra1 apps."
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Optional; clients derive a display title from the first body line when empty."
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 200000,
+      "description": "Plain text. For rich notes, the text of doc (search, previews, older clients)."
+    },
+    "doc": {
+      "$ref": "note-document-v1.schema.json"
+    },
+    "folderId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9_-]{1,64}$",
+      "description": "note_folder id; null or missing = no folder. A missing folder shows the note in All Notes."
+    },
+    "pinned": {
+      "type": "boolean",
+      "default": false
+    },
+    "favorite": {
+      "type": "boolean",
+      "default": false
+    },
+    "archivedUtc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "Set while the note is archived."
+    },
+    "trashedUtc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "Set while the note is in Trash; clients delete it for good after the retention period (default 30 days)."
+    },
+    "assets": {
+      "type": "array",
+      "maxItems": 500,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "description": "SHA-256 ids of the pictures doc references (uploaded with PUT /v1/note-assets/{id})."
+    },
+    "links": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "event",
+              "contact",
+              "mail",
+              "task"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "account": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "description": "References to other Alondra1 objects. Targets are checked by whoever opens them; a missing target is shown as unavailable."
+    },
+    "createdUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "modifiedUtc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

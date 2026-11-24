@@ -56,6 +56,8 @@ Optional test settings (scale test, live mailboxes, fixture updates) are listed 
 | Document | For |
 | --- | --- |
 | [Features](docs/FEATURES.md) | Everything Alondra1 does today, by workspace, and the known gaps. |
+| [Notes](docs/NOTES.md) | The rich-text Notes module: editor, storage, pictures, sync, limits. |
+| [Cloud](docs/CLOUD.md) | Optional Alondra1 account: Cloud Sync for To-do and Mail Archive (paid plans), and how to test against the backend. |
 | [Architecture](docs/ARCHITECTURE.md) | Projects, ports and adapters, sync, storage, security, threading. |
 | [Code guide](docs/CODE-GUIDE.md) | File-by-file reference, common changes, command-line switches, tests. |
 | [Guidelines](docs/GUIDELINES.md) | Principles and rules for code, data, security, UI, testing, and releases. |

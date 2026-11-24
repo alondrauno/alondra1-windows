@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:Alondra1.App.Shell"
         xmlns:tasks="clr-namespace:Alondra1.App.Tasks"
+        xmlns:notes="clr-namespace:Alondra1.App.Notes"
         xmlns:ui="clr-namespace:Alondra1.App.Controls"
         xmlns:app="clr-namespace:Alondra1.App"
         Title="Alondra1"
@@ -274,15 +275,10 @@
           <!-- To-do -->
           <tasks:TodoToolbar DataContext="{Binding Todo}" Visibility="{Binding DataContext.IsTasks, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVis}}"/>
 
-          <!-- Notes -->
+          <!-- Notes: actions live in the Notes panes; the toolbar shows sort order. -->
           <StackPanel Orientation="Horizontal" Visibility="{Binding IsNotes, Converter={StaticResource BoolVis}}">
-            <ComboBox x:Name="NoteBox" Width="240" AutomationProperties.Name="Select note" ToolTip="Note" SelectionChanged="NoteBox_SelectionChanged"/>
-            <Button Style="{StaticResource QuietButton}" Command="{Binding NewNoteCommand}" AutomationProperties.Name="New note" Margin="6,0,0,0">
-              <StackPanel Orientation="Horizontal">
-                <ui:Alondra1Icon Kind="Add" IconSize="16" VerticalAlignment="Center"/>
-                <TextBlock Text="New note" Margin="6,0,0,0" VerticalAlignment="Center"/>
-              </StackPanel>
-            </Button>
+            <ui:Alondra1Icon Kind="Sort" IconSize="16" Foreground="{DynamicResource MutedBrush}" Margin="4,0,6,0" VerticalAlignment="Center"/>
+            <ComboBox x:Name="NoteSortBox" ItemsSource="{Binding Notes.SortOptions}" MinWidth="128" SelectionChanged="NoteSortBox_SelectionChanged" AutomationProperties.Name="Sort notes by" ToolTip="Sort notes"/>
           </StackPanel>
 
           <!-- Contacts -->
@@ -574,6 +570,9 @@
         <tasks:TodoView x:Name="TodoPanel" DataContext="{Binding Todo}"
                         Visibility="{Binding Host.IsTasks, Converter={StaticResource BoolVis}}"/>
 
+        <notes:NotesView x:Name="NotesPanel" DataContext="{Binding Notes}"
+                         Visibility="{Binding Host.IsNotes, Converter={StaticResource BoolVis}}"/>
+
         <ScrollViewer Visibility="{Binding ShowOrganizer, Converter={StaticResource BoolVis}}" VerticalScrollBarVisibility="Auto">
           <Border Style="{StaticResource Pane}" Padding="16" MinHeight="365">
             <StackPanel>
@@ -619,11 +618,6 @@
                 <Border Style="{StaticResource Card}" Padding="12,10" Margin="0,12,0,0">
                   <TextBlock Text="{Binding AgendaText}" TextWrapping="Wrap"/>
                 </Border>
-              </StackPanel>
-              <StackPanel Visibility="{Binding IsNotes, Converter={StaticResource BoolVis}}">
-                <TextBox Text="{Binding NoteBody, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="260" TextWrapping="Wrap" VerticalContentAlignment="Top"
-                         AutomationProperties.Name="Note text" LostFocus="Note_LostFocus"/>
-                <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="{DynamicResource MutedBrush}" Text="Notes are stored by Alondra1 in the account app folder. They are not Google Keep or OneNote notes." TextWrapping="Wrap"/>
               </StackPanel>
               <StackPanel Visibility="{Binding IsContacts, Converter={StaticResource BoolVis}}">
                 <ItemsControl ItemsSource="{Binding VisibleContacts}" AutomationProperties.Name="Contacts">

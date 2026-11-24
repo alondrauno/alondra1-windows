@@ -34,6 +34,12 @@ public partial class TodoToolbar : UserControl
             model.SetImportantOnly(!model.ImportantOnly);
     }
 
+    private void CloudButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is { } model)
+            Dialogs.ShowSettings(Owner, model.Host, page: 6);
+    }
+
     private void MoreButton_Click(object sender, RoutedEventArgs e)
     {
         if (Model is not { IsAvailable: true } model || MoreButton.ContextMenu is not { } menu)

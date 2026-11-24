@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alondra1.com/schemas/calendar-v1.schema.json",
+  "title": "Alondra1 calendar event (v1)",
+  "description": "A local Alondra1 event (not a provider calendar). Timed events carry UTC instants with offset plus the IANA zone they were created in; all-day events carry calendar dates only (end inclusive) and never shift across zones. Private to its owner within a space.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "allDay", "timeZone"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "description": { "type": "string", "maxLength": 20000 },
+    "allDay": { "type": "boolean" },
+    "startUtc": { "type": "string", "format": "date-time" },
+    "endUtc": { "type": "string", "format": "date-time", "description": "Not before startUtc." },
+    "startDate": { "type": "string", "format": "date" },
+    "endDate": { "type": "string", "format": "date", "description": "Inclusive; not before startDate." },
+    "timeZone": { "type": "string", "description": "IANA zone, e.g. Europe/Berlin." },
+    "reminderMinutes": { "type": "integer", "minimum": 0, "maximum": 40320, "description": "Before the start (timed) or before 09:00 local on the start date (all-day)." },
+    "createdUtc": { "type": "string", "format": "date-time" },
+    "modifiedUtc": { "type": "string", "format": "date-time" }
+  },
+  "if": { "properties": { "allDay": { "const": true } } },
+  "then": { "required": ["startDate", "endDate"], "not": { "anyOf": [{ "required": ["startUtc"] }, { "required": ["endUtc"] }] } },
+  "else": { "required": ["startUtc", "endUtc"], "not": { "anyOf": [{ "required": ["startDate"] }, { "required": ["endDate"] }] } }
+}

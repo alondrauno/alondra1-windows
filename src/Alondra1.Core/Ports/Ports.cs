@@ -57,6 +57,9 @@ public interface IMailGateway
     Task<RemoteSyncBatch> FetchChangesAsync(AccountConfig account, SecretBundle secrets, RemoteFolder folder, string? checkpoint, int? historyLimit, CancellationToken cancellationToken);
     Task<StoredBody> FetchBodyAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, CancellationToken cancellationToken);
     Task FetchAttachmentAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, string fileName, Stream destination, IProgress<long>? progress, CancellationToken cancellationToken);
+
+    /// <summary>Writes the original message (RFC 5322, as on the server) to <paramref name="destination"/>. Used to archive a copy; the mailbox is not changed.</summary>
+    Task FetchRawAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, Stream destination, CancellationToken cancellationToken);
     Task ApplyAsync(AccountConfig account, SecretBundle secrets, RemoteMailCommand command, CancellationToken cancellationToken);
     Task<SendResult> SendAsync(AccountConfig account, SecretBundle secrets, OutgoingMail mail, CancellationToken cancellationToken);
     Task IdleAsync(AccountConfig account, SecretBundle secrets, CancellationToken cancellationToken);

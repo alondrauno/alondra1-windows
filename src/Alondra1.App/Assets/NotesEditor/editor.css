@@ -1,0 +1,153 @@
+/* Alondra1 Notes editor. Tokens match the Windows themes (Light.xaml / Dark.xaml); the host may override them. */
+:root {
+  --a1-bg: #FFFFFF; --a1-subtle: #FAF9FD; --a1-text: #2A2940; --a1-muted: #5F5E7A; --a1-line: #E2DFEE;
+  --a1-hover: #F0EEF8; --a1-selected: #E7E5F6; --a1-accent: #55569E; --a1-brand: #6C6DB0; --a1-danger: #C42B1C;
+  --a1-find: #FDE68A; --a1-find-current: #F59E0B; --a1-code: #F3F2F9;
+  --a1-radius: 8px; --a1-btn: 32px; --a1-font: "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --a1-bg: #1E1D2A; --a1-subtle: #252434; --a1-text: #ECEBF5; --a1-muted: #A4A3BE; --a1-line: #33324A;
+    --a1-hover: #2A293B; --a1-selected: #302F54; --a1-accent: #BEBFF2; --a1-danger: #FF7A7A;
+    --a1-find: #6B5A1E; --a1-find-current: #B7791F; --a1-code: #252434; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --a1-bg: #1E1D2A; --a1-subtle: #252434; --a1-text: #ECEBF5; --a1-muted: #A4A3BE; --a1-line: #33324A;
+  --a1-hover: #2A293B; --a1-selected: #302F54; --a1-accent: #BEBFF2; --a1-danger: #FF7A7A;
+  --a1-find: #6B5A1E; --a1-find-current: #B7791F; --a1-code: #252434; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--a1-bg); color: var(--a1-text); font: 14px/1.6 var(--a1-font); display: flex; flex-direction: column; overflow: hidden; }
+button, select, input { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+/* ---------- toolbar ---------- */
+.a1-bars { flex: none; border-bottom: 1px solid var(--a1-line); background: var(--a1-bg); padding: 6px 12px; }
+#a1-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
+.a1-group { display: flex; align-items: center; gap: 2px; padding: 0 6px; border-right: 1px solid var(--a1-line); }
+.a1-group:first-child { padding-left: 0; }
+.a1-group:last-child { border-right: 0; }
+.a1-btn { width: var(--a1-btn); height: var(--a1-btn); display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--a1-text); cursor: pointer; padding: 0; }
+.a1-btn:hover:not(:disabled) { background: var(--a1-hover); }
+.a1-btn[aria-pressed="true"] { background: var(--a1-selected); color: var(--a1-accent); }
+.a1-btn:disabled { opacity: .38; cursor: default; }
+.a1-btn:focus-visible, .a1-select:focus-visible, .a1-textbtn:focus-visible, .a1-swatch:focus-visible, #a1-title:focus-visible { outline: 2px solid var(--a1-accent); outline-offset: 1px; }
+.a1-glyph { font-size: 15px; line-height: 1; min-width: 14px; text-align: center; }
+.a1-btn-text { font-size: 12px; font-weight: 600; padding: 0 4px; white-space: nowrap; }
+.a1-btn:has(.a1-btn-text) { width: auto; min-width: var(--a1-btn); padding: 0 6px; }
+.a1-select { height: 30px; border: 1px solid var(--a1-line); border-radius: 6px; background: var(--a1-bg); padding: 0 6px; margin-right: 4px; max-width: 128px; cursor: pointer; }
+.a1-select:disabled { opacity: .5; }
+#a1-contextbars:empty { display: none; }
+.a1-context { display: flex; align-items: center; gap: 2px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--a1-line); }
+.a1-context::before { content: attr(aria-label); color: var(--a1-muted); font-size: 12px; margin-right: 8px; }
+
+/* ---------- popovers, find, banner, toast ---------- */
+#a1-popover { position: fixed; z-index: 10; background: var(--a1-bg); border: 1px solid var(--a1-line); border-radius: var(--a1-radius); box-shadow: 0 8px 24px rgba(20, 18, 40, .18); padding: 10px; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+.a1-swatches { display: grid; grid-template-columns: repeat(5, 24px); gap: 6px; }
+.a1-swatch { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--a1-line); cursor: pointer; padding: 0; }
+.a1-row { display: flex; gap: 6px; align-items: center; }
+.a1-row input[type=text], .a1-row input[type=url] { flex: 1; min-width: 160px; height: 30px; border: 1px solid var(--a1-line); border-radius: 6px; padding: 0 8px; background: var(--a1-bg); }
+.a1-row input[type=color] { width: 30px; height: 30px; border: 0; padding: 0; background: none; }
+.a1-textbtn { border: 1px solid var(--a1-line); background: var(--a1-subtle); border-radius: 6px; height: 30px; padding: 0 10px; cursor: pointer; text-align: left; }
+.a1-textbtn:hover { background: var(--a1-hover); }
+.a1-grid { display: grid; grid-template-columns: repeat(8, 18px); gap: 3px; }
+.a1-grid button { width: 18px; height: 18px; border: 1px solid var(--a1-line); border-radius: 3px; background: var(--a1-bg); padding: 0; cursor: pointer; }
+.a1-grid button.on { background: var(--a1-selected); border-color: var(--a1-accent); }
+.a1-gridlabel { color: var(--a1-muted); font-size: 12px; }
+#a1-find { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--a1-line); background: var(--a1-subtle); }
+#a1-find input { flex: 1; max-width: 320px; height: 28px; border: 1px solid var(--a1-line); border-radius: 6px; padding: 0 8px; background: var(--a1-bg); }
+#a1-find-count { color: var(--a1-muted); font-size: 12px; min-width: 70px; }
+#a1-banner { padding: 8px 16px; background: var(--a1-selected); color: var(--a1-text); font-size: 13px; }
+#a1-toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--a1-text); color: var(--a1-bg); padding: 8px 14px; border-radius: var(--a1-radius); font-size: 13px; z-index: 20; max-width: 90vw; }
+
+/* ---------- page ---------- */
+#a1-page { flex: 1; overflow: auto; }
+#a1-sheet { max-width: 860px; margin: 0 auto; padding: 20px 32px 64px; }
+#a1-title { width: 100%; border: 0; background: transparent; font-size: 26px; font-weight: 600; line-height: 1.25; padding: 4px 0 8px; outline: none; color: var(--a1-text); }
+#a1-title::placeholder { color: var(--a1-muted); opacity: .7; }
+#a1-statusline { color: var(--a1-muted); font-size: 12px; margin-bottom: 8px; min-height: 18px; }
+
+/* ---------- document ---------- */
+.ProseMirror { outline: none; min-height: 50vh; word-wrap: break-word; white-space: pre-wrap; font-size: 15px; }
+.ProseMirror p { margin: 6px 0; }
+.ProseMirror [data-spacing="compact"] { margin: 1px 0; }
+.ProseMirror [data-spacing="relaxed"] { margin: 14px 0; line-height: 1.9; }
+.ProseMirror h1 { font-size: 26px; margin: 18px 0 8px; line-height: 1.25; }
+.ProseMirror h2 { font-size: 21px; margin: 16px 0 6px; line-height: 1.3; }
+.ProseMirror h3 { font-size: 17px; margin: 14px 0 4px; }
+.ProseMirror a { color: var(--a1-accent); text-decoration: underline; cursor: text; }
+.ProseMirror a[href^="alondra://task/"]::before { content: "✓ "; }
+.ProseMirror blockquote { border-left: 3px solid var(--a1-line); margin: 10px 0; padding: 2px 0 2px 14px; color: var(--a1-muted); }
+.ProseMirror code { background: var(--a1-code); border-radius: 4px; padding: 1px 4px; font: 13px Consolas, "Cascadia Mono", monospace; }
+.ProseMirror pre { background: var(--a1-code); border-radius: var(--a1-radius); padding: 10px 14px; overflow-x: auto; white-space: pre; }
+.ProseMirror pre code { background: none; padding: 0; }
+.ProseMirror hr { border: 0; border-top: 1px solid var(--a1-line); margin: 16px 0; }
+.ProseMirror hr.ProseMirror-selectednode { border-top-color: var(--a1-accent); }
+/* Highlight and cell colors are light in every theme, so their text stays dark (readable in dark mode too). */
+.ProseMirror mark { border-radius: 2px; padding: 0 1px; color: #1F2937 !important; }
+.ProseMirror td[data-background], .ProseMirror th[data-background] { color: #1F2937; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 26px; margin: 6px 0; }
+.ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 2px; }
+.ProseMirror ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; }
+.ProseMirror ul[data-type="taskList"] li > label { flex: none; margin-top: 4px; user-select: none; }
+.ProseMirror ul[data-type="taskList"] li > label input { width: 16px; height: 16px; accent-color: var(--a1-brand); cursor: pointer; margin: 0; }
+.ProseMirror ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--a1-muted); text-decoration: line-through; }
+.ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--a1-muted); opacity: .7; float: left; height: 0; pointer-events: none; }
+
+/* tables */
+.ProseMirror .tableWrapper { overflow-x: auto; margin: 12px 0; }
+.ProseMirror table { border-collapse: collapse; table-layout: fixed; width: 100%; margin: 0; }
+.ProseMirror td, .ProseMirror th { border: 1px solid var(--a1-line); padding: 4px 8px; vertical-align: top; position: relative; min-width: 48px; }
+.ProseMirror th { background: var(--a1-subtle); font-weight: 600; text-align: left; }
+.ProseMirror td > p, .ProseMirror th > p { margin: 2px 0; }
+.ProseMirror .selectedCell::after { content: ""; position: absolute; inset: 0; background: var(--a1-selected); opacity: .55; pointer-events: none; }
+.ProseMirror .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: -2px; width: 4px; background: var(--a1-accent); pointer-events: none; }
+.ProseMirror.resize-cursor { cursor: col-resize; }
+
+/* pictures */
+.a1-figure { margin: 10px 0; display: flex; flex-direction: column; align-items: flex-start; }
+.a1-figure[data-align="center"] { align-items: center; }
+.a1-figure[data-align="right"] { align-items: flex-end; }
+.a1-img-wrap { position: relative; max-width: 100%; display: inline-block; line-height: 0; }
+.a1-img-wrap img { width: 100%; max-width: 100%; height: auto; border-radius: 4px; display: block; }
+.a1-img-wrap:not([style*="width"]) img { width: auto; }
+.a1-figure.a1-selected .a1-img-wrap { outline: 2px solid var(--a1-accent); outline-offset: 2px; border-radius: 4px; }
+.a1-resize { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; border-radius: 50%; background: var(--a1-bg); border: 2px solid var(--a1-accent); cursor: nwse-resize; display: none; touch-action: none; }
+.a1-figure.a1-selected .a1-resize { display: block; }
+.a1-figure figcaption { color: var(--a1-muted); font-size: 13px; margin-top: 4px; }
+.a1-remote { border: 1px dashed var(--a1-line); border-radius: var(--a1-radius); padding: 10px 12px; color: var(--a1-muted); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.a1-remote button { border: 1px solid var(--a1-line); background: var(--a1-subtle); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.a1-unknown { border: 1px dashed var(--a1-line); border-radius: var(--a1-radius); padding: 8px 12px; color: var(--a1-muted); font-size: 13px; margin: 8px 0; background: var(--a1-subtle); }
+.a1-unknown-inline { color: var(--a1-muted); }
+.a1-find { background: var(--a1-find); border-radius: 2px; }
+.a1-find-current { background: var(--a1-find-current); border-radius: 2px; }
+.ProseMirror-gapcursor { display: none; pointer-events: none; position: absolute; }
+.ProseMirror-gapcursor:after { content: ""; display: block; position: absolute; top: -2px; width: 20px; border-top: 1px solid var(--a1-text); animation: a1-blink 1.1s steps(2, start) infinite; }
+.ProseMirror-focused .ProseMirror-gapcursor { display: block; }
+@keyframes a1-blink { to { visibility: hidden; } }
+.ProseMirror-selectednode { outline: 2px solid var(--a1-accent); }
+
+/* ---------- touch (Android): toolbar at the bottom, above the keyboard; 44 px targets ---------- */
+body.a1-touch { --a1-btn: 44px; }
+body.a1-touch .a1-bars { order: 3; border-bottom: 0; border-top: 1px solid var(--a1-line); padding: 4px 6px; }
+body.a1-touch #a1-toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+body.a1-touch #a1-toolbar::-webkit-scrollbar { display: none; }
+body.a1-touch .a1-group { flex: none; }
+body.a1-touch .a1-select { height: 40px; }
+body.a1-touch .a1-context { overflow-x: auto; margin-top: 0; margin-bottom: 4px; border-top: 0; padding-top: 0; }
+body.a1-touch #a1-contextbars { order: -1; }
+body.a1-touch .a1-bars { display: flex; flex-direction: column; }
+body.a1-touch #a1-sheet { padding: 12px 16px 48px; }
+body.a1-touch #a1-title { font-size: 22px; }
+body.a1-touch .a1-resize { width: 22px; height: 22px; right: -10px; bottom: -10px; }
+body.a1-touch .a1-swatches { grid-template-columns: repeat(5, 36px); }
+body.a1-touch .a1-swatch { width: 36px; height: 36px; }
+body.a1-touch .a1-grid { grid-template-columns: repeat(8, 28px); }
+body.a1-touch .a1-grid button { width: 28px; height: 28px; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }

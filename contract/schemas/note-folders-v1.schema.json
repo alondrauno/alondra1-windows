@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alondra1.com/schemas/note-folders-v1.schema.json",
+  "title": "Alondra1 note folder (v1)",
+  "description": "A user-created folder for notes. Folders nest through parentId. Deleting a folder never deletes its notes; clients move them out (folderId null).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "parentId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "position": {
+      "type": "number",
+      "default": 0
+    },
+    "createdUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "modifiedUtc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

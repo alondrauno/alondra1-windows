@@ -240,7 +240,7 @@ public static class Dialogs
         var pages = new (string Name, string Icon, UIElement Page)[]
         {
             ("Appearance", "Settings", appearance), ("Background", "Image", backgroundPage), ("Mail", "Mail", mail), ("Accounts", "Contacts", accounts),
-            ("Connections", "Refresh", connections), ("Data", "Archive", data),
+            ("Connections", "Refresh", connections), ("Data", "Archive", data), ("Cloud", "Upload", Cloud.CloudDialogs.Page(model)),
         };
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });

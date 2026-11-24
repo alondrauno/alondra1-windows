@@ -30,7 +30,7 @@ public sealed partial class MainViewModel : ObservableObject
             new WorkspaceChoice("Mail", "\uE715", false, "Mail", "Search mail"),
             new WorkspaceChoice("Calendar", "\uE787", false, "Calendar", null),
             new WorkspaceChoice("To-do", "\uE9D5", false, "Todo", "Search tasks"),
-            new WorkspaceChoice("Notes", "\uE70B", false, "Notes", null),
+            new WorkspaceChoice("Notes", "\uE70B", false, "Notes", "Search notes"),
             new WorkspaceChoice("Contacts", "\uE77B", false, "Contacts", "Search contacts"),
             new WorkspaceChoice("Chat", "\uE8F2", true, "Chat", null),
         ];
@@ -53,7 +53,9 @@ public sealed partial class MainViewModel : ObservableObject
         NewNoteCommand = new RelayCommand(async () => await NewNoteAsync());
         SettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke());
         AccountsCommand = new RelayCommand(() => AccountRequested?.Invoke(null));
+        Cloud = new Alondra1.App.Cloud.CloudController(services);
         Todo = new Alondra1.App.Tasks.TodoViewModel(services, this);
+        Notes = new Alondra1.App.Notes.NotesViewModel(services, this);
     }
 
     public ObservableCollection<WorkspaceChoice> Workspaces { get; }
@@ -86,6 +88,35 @@ public sealed partial class MainViewModel : ObservableObject
 
     public event Action<OutgoingMail?>? ComposeRequested;
     public event Action? SettingsRequested;
+
+    /// <summary>The local rich-text Notes module.</summary>
+    public Alondra1.App.Notes.NotesViewModel Notes { get; }
+
+    /// <summary>Optional Alondra1 account, Cloud Sync and Mail Archive.</summary>
+    public Alondra1.App.Cloud.CloudController Cloud { get; }
+
+    /// <summary>Copies the selected message to the paid cloud archive; the result is shown in the reader status line.</summary>
+    public async Task ArchiveToCloudAsync()
+    {
+        if (SelectedMessage is not { } message)
+            return;
+        ReaderStatus = "Copying to the cloud archive…";
+        RaiseReader();
+        try
+        {
+            ReaderStatus = await Cloud.ArchiveMessageAsync(message).ConfigureAwait(true);
+        }
+        catch (Alondra1.Core.Cloud.CloudApiException ex)
+        {
+            ReaderStatus = "Not archived: " + ex.Message;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or System.Net.Sockets.SocketException or MailKit.ServiceNotConnectedException or MailKit.Security.AuthenticationException or MailKit.ProtocolException)
+        {
+            ReaderStatus = "Not archived: the message could not be read from the mail server (" + ex.GetType().Name + ").";
+        }
+
+        RaiseReader();
+    }
     public event Action<AccountConfig?>? AccountRequested;
 
     public string WorkspaceName { get; private set; } = "Mail";
@@ -322,7 +353,7 @@ public sealed partial class MainViewModel : ObservableObject
     public Alondra1.App.Tasks.TodoViewModel Todo { get; }
 
     /// <summary>The shared organizer pane is used by Calendar, Notes, Contacts, and Chat. To-do has its own view.</summary>
-    public bool ShowOrganizer => !IsMail && !IsTasks;
+    public bool ShowOrganizer => !IsMail && !IsTasks && !IsNotes;
 
     // ---------- Two-row shell: header search, module toolbar, connection status ----------
 
@@ -333,12 +364,12 @@ public sealed partial class MainViewModel : ObservableObject
     public string SearchPlaceholder => CurrentWorkspace.SearchPlaceholder ?? "";
 
     /// <summary>The query the header search box should show for the current module.</summary>
-    public string ModuleSearchText => IsMail ? SearchText : IsTasks ? Todo.SearchText : IsContacts ? ContactQuery : "";
+    public string ModuleSearchText => IsMail ? SearchText : IsTasks ? Todo.SearchText : IsNotes ? Notes.SearchText : IsContacts ? ContactQuery : "";
 
     /// <summary>Mail, Calendar, Notes, and Contacts are filtered by account; local To-do and Chat are not.</summary>
-    public bool HasAccountSelector => IsMail || IsCalendar || IsNotes || IsContacts;
+    public bool HasAccountSelector => IsMail || IsCalendar || IsContacts;
     /// <summary>Mail chooses its account in the view settings; the other workspaces keep the toolbar selector.</summary>
-    public bool ShowToolbarAccountSelector => IsCalendar || IsNotes || IsContacts;
+    public bool ShowToolbarAccountSelector => IsCalendar || IsContacts;
     public bool HasSyncButton => HasAccountSelector;
     public bool IsSyncing { get; private set; }
     public string SyncToolTip => (IsSyncing ? "Syncing…" : "Sync now (F5)") + (string.IsNullOrWhiteSpace(StatusText) ? "" : "\n" + StatusText);
@@ -455,7 +486,7 @@ public sealed partial class MainViewModel : ObservableObject
             workspace.IsSelected = workspace.Name == name;
         SetShellWidth(_shellWidth);
         RaiseChrome();
-        if (!IsDemo && !IsMail && !IsChat && !IsTasks)
+        if (!IsDemo && !IsMail && !IsChat && !IsTasks && !IsNotes)
             _ = LoadOrganizerAsync();
     }
 
@@ -1270,6 +1301,116 @@ public sealed partial class MainViewModel : ObservableObject
         return _services.Config.Accounts.Where(account => account.DisplayName == SelectedAccount);
     }
 
+    /// <summary>
+    /// Things a note can link to: upcoming events and contacts from the mail accounts (Microsoft 365, Google), loaded on
+    /// demand. Accounts that are offline or lack the permission are skipped. Demo mode uses the sample data.
+    /// </summary>
+    public async Task<(IReadOnlyList<CalendarEntry> Events, IReadOnlyList<ContactEntry> Contacts)> LinkTargetsAsync()
+    {
+        if (IsDemo)
+            return (SampleCatalog.Events().ToList(), SampleCatalog.Contacts().ToList());
+        var events = new List<CalendarEntry>();
+        var contacts = new List<ContactEntry>();
+        foreach (var account in _services.Config.Accounts.Where(a => a.Kind != AccountKind.Manual))
+        {
+            try
+            {
+                var secrets = await _services.Secrets.LoadAsync(account.Id, CancellationToken.None).ConfigureAwait(true);
+                secrets = await _services.OAuth.EnsureFreshAsync(account, secrets, account.Kind == AccountKind.Gmail ? Alondra1.Core.Security.TokenAudience.Google : Alondra1.Core.Security.TokenAudience.Graph, CancellationToken.None).ConfigureAwait(true);
+                var start = DateTimeOffset.UtcNow.Date.AddDays(-14);
+                if ((await _services.Organizer.GetStatusAsync(account, secrets, OrganizerFeature.Calendar, CancellationToken.None).ConfigureAwait(true)).Available)
+                    events.AddRange(await _services.Organizer.ListEventsAsync(account, secrets, start, start.AddDays(60), CancellationToken.None).ConfigureAwait(true));
+                if ((await _services.Organizer.GetStatusAsync(account, secrets, OrganizerFeature.Contacts, CancellationToken.None).ConfigureAwait(true)).Available)
+                    contacts.AddRange(await _services.Organizer.ListContactsAsync(account, secrets, CancellationToken.None).ConfigureAwait(true));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Debug.WriteLine("Link targets skipped for an account: " + ex.GetType().Name);
+            }
+        }
+
+        return (events.OrderBy(e => e.Start).ToList(), contacts.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList());
+    }
+
+    /// <summary>Plain-text notes that earlier versions stored in the mail accounts' app folders (for a one-time import).</summary>
+    public async Task<IReadOnlyList<NoteEntry>> AccountNotesAsync()
+    {
+        if (IsDemo)
+            return SampleCatalog.Notes().ToList();
+        var notes = new List<NoteEntry>();
+        foreach (var account in _services.Config.Accounts.Where(a => a.Kind != AccountKind.Manual))
+        {
+            var secrets = await _services.Secrets.LoadAsync(account.Id, CancellationToken.None).ConfigureAwait(true);
+            secrets = await _services.OAuth.EnsureFreshAsync(account, secrets, account.Kind == AccountKind.Gmail ? Alondra1.Core.Security.TokenAudience.Google : Alondra1.Core.Security.TokenAudience.Graph, CancellationToken.None).ConfigureAwait(true);
+            if ((await _services.Organizer.GetStatusAsync(account, secrets, OrganizerFeature.Notes, CancellationToken.None).ConfigureAwait(true)).Available)
+                notes.AddRange(await _services.Organizer.ListNotesAsync(account, secrets, CancellationToken.None).ConfigureAwait(true));
+        }
+
+        return notes;
+    }
+
+    /// <summary>Opens the Calendar on the day of a linked event.</summary>
+    public void OpenCalendarAt(DateTimeOffset when)
+    {
+        SelectWorkspace("Calendar");
+        _month = new DateTime(when.Year, when.Month, 1);
+        _chosenDay = when.Day;
+        BuildCalendar();
+    }
+
+    /// <summary>Opens Contacts filtered to a name.</summary>
+    public void OpenContact(string name)
+    {
+        SelectWorkspace("Contacts");
+        ApplyContactQuery(name);
+        ContactQueryChanged?.Invoke(name);
+    }
+
+    public event Action<string>? ContactQueryChanged;
+
+    /// <summary>Opens a message a note links to, when it is in the list on this PC. False when it is not.</summary>
+    public bool OpenMessageById(string id, string? accountId)
+    {
+        var found = Messages.FirstOrDefault(m => (m.MessageId == id || $"{m.FolderId}/{m.Uid}" == id) && (accountId is null || m.AccountId == accountId));
+        if (found is null)
+            return false;
+        SelectWorkspace("Mail");
+        SelectMessage(found);
+        MessageOpened?.Invoke(found);
+        return true;
+    }
+
+    public event Action<StoredMessage>? MessageOpened;
+
+    /// <summary>Creates a note from the selected email (text, and pictures when asked). Only on the user's request.</summary>
+    public async Task CreateNoteFromMailAsync(bool withPictures)
+    {
+        if (SelectedMessage is not { } message || Notes is null)
+            return;
+        var text = ReaderBody ?? "";
+        var pictures = new List<(string Name, byte[] Data)>();
+        if (withPictures && !IsDemo && _services.Config.Accounts.FirstOrDefault(a => a.Id == message.AccountId) is { } account)
+        {
+            foreach (var attachment in Attachments.Where(a => a.IsPicture))
+            {
+                try
+                {
+                    using var stream = new MemoryStream();
+                    var secrets = await _services.Secrets.LoadAsync(account.Id, CancellationToken.None).ConfigureAwait(true);
+                    await _services.Mail.FetchAttachmentAsync(account, secrets, message.FolderId, message.Uid, attachment.FileName, stream, null, CancellationToken.None).ConfigureAwait(true);
+                    pictures.Add((attachment.FileName, stream.ToArray()));
+                }
+                catch (Exception ex) when (ex is IOException or InvalidOperationException or MailKit.ServiceNotConnectedException or MailKit.ProtocolException or System.Net.Sockets.SocketException)
+                {
+                    Debug.WriteLine("Attachment skipped for the note: " + ex.GetType().Name);
+                }
+            }
+        }
+
+        SelectWorkspace("Notes");
+        await Notes.CreateFromMailAsync(message, text, pictures).ConfigureAwait(true);
+    }
+
     private AccountConfig? OrganizerAccount()
     {
         var named = SelectedAccount == "All accounts" ? null : SelectedAccount;
@@ -1475,6 +1616,7 @@ public sealed class AttachmentRow(StoredAttachment source)
         _ => $"{Source.Size / (1024.0 * 1024):0.0} MB",
     };
     public string Kind => Source.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "Image" : "Attachment";
+    public bool IsPicture => Kind == "Image";
     public string AccessName => string.IsNullOrEmpty(SizeText) ? FileName : $"{FileName}, {SizeText}";
 }
 
@@ -1566,6 +1708,11 @@ public sealed class AppServices
     public SqliteTaskStore? TaskStore { get; init; }
     public TaskFileStore? TaskFiles { get; init; }
     public Alondra1.Core.Tasks.TaskBoard? Tasks { get; init; }
+    public Alondra1.Core.Cloud.CloudApi? CloudApi { get; init; }
+    public Alondra1.Core.Cloud.CloudAccount? CloudAccount { get; init; }
+    public Alondra1.Core.Cloud.CloudSyncEngine? CloudSync { get; init; }
+    public Alondra1.Core.Notes.NotesBoard? NotesBoard { get; init; }
+    public Alondra1.Core.Notes.NoteAssets? NoteAssets { get; init; }
     public string? TaskStoreError { get; init; }
 
     /// <summary>Alondra1's data folder (%LOCALAPPDATA%\alondra1, or a temporary folder in demo mode).</summary>
@@ -1611,8 +1758,15 @@ public sealed class AppServices
         var organizer = new Alondra1.Providers.OrganizerGateway(config.OAuth);
         var sync = new SyncCoordinator(mail, store, cache, secrets, oauth, new Alondra1.Core.Ports.SystemClock(), new NullConflicts());
         var (taskStore, taskFiles, board, taskError) = await OpenTasksAsync(root).ConfigureAwait(false);
+        var (notesBoard, noteAssets) = await OpenNotesAsync(config, taskStore, root).ConfigureAwait(false);
+        var (cloudApi, cloudAccount, cloudSync) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, root);
         return new AppServices
         {
+            CloudApi = cloudApi,
+            CloudAccount = cloudAccount,
+            CloudSync = cloudSync,
+            NotesBoard = notesBoard,
+            NoteAssets = noteAssets,
             Home = root,
             TaskStore = taskStore,
             TaskFiles = taskFiles,
@@ -1629,6 +1783,64 @@ public sealed class AppServices
             Sync = sync,
             Cache = cache,
         };
+    }
+
+    /// <summary>
+    /// The optional Alondra1 cloud. Nothing here talks to the network until the user signs in; a bad address only
+    /// disables the cloud features. Before the first sync, todo.db is copied to backups	odo-before-cloud-*.db.
+    /// </summary>
+    private static (Alondra1.Core.Cloud.CloudApi?, Alondra1.Core.Cloud.CloudAccount?, Alondra1.Core.Cloud.CloudSyncEngine?) CreateCloud(
+        AppConfig config, DpapiSecretStore secrets, SqliteTaskStore? taskStore, Alondra1.Core.Tasks.TaskBoard? board,
+        Alondra1.Core.Notes.NotesBoard? notes, Alondra1.Core.Notes.NoteAssets? assets, string root)
+    {
+        if (taskStore is null || board is null)
+            return (null, null, null);
+        try
+        {
+            var api = new Alondra1.Core.Cloud.CloudApi(config.Cloud.EffectiveUri(), new Alondra1.Core.Cloud.SecretStoreTokens(secrets));
+            var account = new Alondra1.Core.Cloud.CloudAccount(api, taskStore);
+            var engine = new Alondra1.Core.Cloud.CloudSyncEngine(board, taskStore, api, new Alondra1.Core.Ports.SystemClock(), async () =>
+            {
+                var folder = Path.Combine(root, "backups");
+                Directory.CreateDirectory(folder);
+                await taskStore.BackupToAsync(Path.Combine(folder, $"todo-before-cloud-{DateTime.Now:yyyyMMdd-HHmmss}.db")).ConfigureAwait(true);
+            }, notes, assets);
+            return (api, account, engine);
+        }
+        catch (Exception ex) when (ex is ArgumentException or UriFormatException)
+        {
+            Debug.WriteLine("Alondra1 cloud disabled: " + ex.Message);
+            return (null, null, null);
+        }
+    }
+
+    /// <summary>
+    /// Opens the local Notes module (notes live in todo.db; pictures below notes-assets). Notes in Trash longer than the
+    /// retention period are deleted at start.
+    /// </summary>
+    private static async Task<(Alondra1.Core.Notes.NotesBoard?, Alondra1.Core.Notes.NoteAssets?)> OpenNotesAsync(AppConfig config, SqliteTaskStore? store, string root)
+    {
+        if (store is null)
+            return (null, null);
+        var clock = new Alondra1.Core.Ports.SystemClock();
+        var notes = new Alondra1.Core.Notes.NotesBoard(store, clock);
+        try
+        {
+            await notes.LoadAsync().ConfigureAwait(false);
+            if (config.Notes.TrashRetentionDays > 0)
+                await notes.PurgeTrashAsync(TimeSpan.FromDays(config.Notes.TrashRetentionDays)).ConfigureAwait(false);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            Debug.WriteLine("Notes unavailable: " + ex.Message);
+            return (null, null);
+        }
+
+        var assets = new Alondra1.Core.Notes.NoteAssets(Path.Combine(root, "notes-assets"), store, () => clock.UtcNow)
+        {
+            MaxBytes = Math.Clamp(config.Notes.MaxPictureMB, 1, 100) * 1024L * 1024L,
+        };
+        return (notes, assets);
     }
 
     /// <summary>

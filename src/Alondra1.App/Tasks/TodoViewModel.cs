@@ -1270,6 +1270,10 @@ public sealed partial class TodoViewModel : ObservableObject
 
     private void RaiseReminders() => OnPropertyChanged(nameof(HasActiveReminders));
 
+    /// <summary>Tasks a note can link to: open ones first, then recently completed.</summary>
+    public IReadOnlyList<Alondra1.Core.Tasks.TodoTask> AllTasksForLinking() =>
+        _board is null ? [] : _board.Tasks.OrderBy(t => t.Completed).ThenByDescending(t => t.ModifiedUtc).Take(2000).ToList();
+
     public void OpenTask(string taskId)
     {
         if (_board?.FindTask(taskId) is not { } task)

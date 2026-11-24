@@ -175,6 +175,27 @@ public sealed class MailKitGateway : IMailGateway
         return MimeBody.Extract(mime, account.Id, folderId, uid);
     }
 
+    public async Task FetchRawAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, Stream destination, CancellationToken cancellationToken)
+    {
+        if (account.Incoming.Protocol == MailProtocol.Pop3)
+        {
+            using var pop = await ConnectPopAsync(account, secrets, cancellationToken).ConfigureAwait(false);
+            var index = await FindPopIndexAsync(account, pop, uid, cancellationToken).ConfigureAwait(false);
+            var message = await pop.GetMessageAsync(index, cancellationToken).ConfigureAwait(false);
+            await pop.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
+            await message.WriteToAsync(destination, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        using var client = await ConnectImapAsync(account, secrets, cancellationToken).ConfigureAwait(false);
+        client.Timeout = 120000;
+        var folder = await client.GetFolderAsync(folderId, cancellationToken).ConfigureAwait(false);
+        await folder.OpenAsync(FolderAccess.ReadOnly, cancellationToken).ConfigureAwait(false);
+        var mime = await folder.GetMessageAsync(new UniqueId((uint)uid), cancellationToken).ConfigureAwait(false);
+        await client.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
+        await mime.WriteToAsync(destination, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task FetchAttachmentAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, string fileName, Stream destination, IProgress<long>? progress, CancellationToken cancellationToken)
     {
         if (account.Incoming.Protocol == MailProtocol.Pop3)

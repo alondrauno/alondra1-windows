@@ -373,6 +373,8 @@ file sealed class FakeGateway : IMailGateway
     public Task<StoredBody> FetchBodyAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, CancellationToken cancellationToken) =>
         Task.FromResult(new StoredBody { Text = "body" });
 
+    public Task FetchRawAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, Stream destination, CancellationToken cancellationToken) => Task.CompletedTask;
+
     public Task FetchAttachmentAsync(AccountConfig account, SecretBundle secrets, string folderId, long uid, string fileName, Stream destination, IProgress<long>? progress, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 

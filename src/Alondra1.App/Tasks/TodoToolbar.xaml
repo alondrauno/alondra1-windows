@@ -5,6 +5,25 @@
   <!-- To-do's row in the shared module toolbar: sort, filters, undo, and the More menu. Search is in the app header. -->
   <DockPanel VerticalAlignment="Center" LastChildFill="False">
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+      <!-- Cloud Sync state (only once Cloud Sync was set up); opens Settings → Cloud. -->
+      <Button x:Name="CloudButton" Style="{StaticResource IconButton}" Click="CloudButton_Click" Padding="8,0" Width="NaN" Margin="0,0,6,0"
+              Visibility="{Binding Host.Cloud.ShowIndicator, Converter={StaticResource BoolVis}}"
+              ToolTip="{Binding Host.Cloud.StatusDetail}" AutomationProperties.Name="{Binding Host.Cloud.StatusText, StringFormat='Cloud Sync: {0}'}" AutomationProperties.LiveSetting="Polite">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <ui:Alondra1Icon Kind="Upload" IconSize="16" VerticalAlignment="Center"/>
+          <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center">
+            <Ellipse.Style>
+              <Style TargetType="Ellipse">
+                <Setter Property="Fill" Value="{DynamicResource AccentWarmBrush}"/>
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Host.Cloud.IsHealthy}" Value="True"><Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/></DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Ellipse.Style>
+          </Ellipse>
+          <TextBlock Text="{Binding Host.Cloud.StatusText}" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Button>
       <Button Style="{StaticResource IconButton}" Command="{Binding UndoCommand}" AutomationProperties.Name="Undo" ToolTip="Undo (Ctrl+Z)">
         <ui:Alondra1Icon Kind="Undo" IconSize="18"/>
       </Button>

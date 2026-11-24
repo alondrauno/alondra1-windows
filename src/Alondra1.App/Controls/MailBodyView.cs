@@ -91,7 +91,8 @@ public sealed class MailBodyView : Grid
     public int BlockedNavigations { get; private set; }
     public string DocumentTitle => _web?.CoreWebView2?.DocumentTitle ?? "";
 
-    private static Task<CoreWebView2Environment?> Environment() => _environment ??= CreateEnvironmentAsync();
+    /// <summary>The shared WebView2 environment (also used by the Notes editor).</summary>
+    internal static Task<CoreWebView2Environment?> Environment() => _environment ??= CreateEnvironmentAsync();
 
     private static async Task<CoreWebView2Environment?> CreateEnvironmentAsync()
     {
