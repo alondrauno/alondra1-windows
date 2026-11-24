@@ -187,6 +187,11 @@ public sealed class NotesTests : IAsyncDisposable
         Assert.Contains("PNG, JPEG, GIF and WebP", refused.Message);
         var small = new NoteAssets(_assets.Directory, _store, () => Start) { MaxBytes = 10 };
         await Assert.ThrowsAsync<NoteAssetException>(() => small.AddAsync(Png(1)));
+        var perNote = new NoteAssets(_assets.Directory, _store, () => Start) { MaxBytesPerNote = png.Length + 10 };
+        Assert.Equal(asset, await perNote.AddAsync(png, [asset.Sha256]));
+        var tooMuch = await Assert.ThrowsAsync<NoteAssetException>(() => perNote.AddAsync(Png(2), [asset.Sha256]));
+        Assert.Contains("one note", tooMuch.Message);
+        Assert.Equal("image/png", (await perNote.AddAsync(Png(2), [])).MimeType);
         Assert.False(await _assets.AddDownloadedAsync(new string('0', 64), png), "bytes must match the hash");
         Assert.Equal((640, 480), NoteAssets.Dimensions("image/gif", [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x80, 0x02, 0xE0, 0x01]) is var (w, h) ? (w!.Value, h!.Value) : default);
     }

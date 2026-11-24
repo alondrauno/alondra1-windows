@@ -103,12 +103,22 @@ public sealed class NoteAssets(string directory, INoteStore store, Func<DateTime
     /// Stores a picture (or returns the stored one with the same content). Throws <see cref="NoteAssetException"/>
     /// with a user-facing reason when the bytes are not a supported picture or are too large.
     /// </summary>
-    public async Task<NoteAsset> AddAsync(byte[] data, CancellationToken cancellationToken = default)
+    /// <param name="noteAssetIds">Pictures the note already uses; when given, the note's total may not exceed <see cref="MaxBytesPerNote"/>.</param>
+    public async Task<NoteAsset> AddAsync(byte[] data, IReadOnlyCollection<string>? noteAssetIds = null, CancellationToken cancellationToken = default)
     {
         if (data.LongLength > MaxBytes)
             throw new NoteAssetException($"The picture is larger than {MaxBytes >> 20} MB.");
         var mime = Sniff(data) ?? throw new NoteAssetException("Only PNG, JPEG, GIF and WebP pictures can be added.");
         var sha = Hash(data);
+        if (noteAssetIds is not null && !noteAssetIds.Contains(sha))
+        {
+            long total = data.LongLength;
+            foreach (var id in noteAssetIds.Distinct())
+                total += (await store.GetAssetAsync(id, cancellationToken).ConfigureAwait(false))?.Bytes ?? 0;
+            if (total > MaxBytesPerNote)
+                throw new NoteAssetException($"Pictures in one note can total at most {MaxBytesPerNote >> 20} MB.");
+        }
+
         var existing = await store.GetAssetAsync(sha, cancellationToken).ConfigureAwait(false);
         var path = PathOf(sha);
         if (existing is not null && File.Exists(path))
@@ -140,7 +150,7 @@ public sealed class NoteAssets(string directory, INoteStore store, Func<DateTime
     {
         if (Hash(data) != sha256 || Sniff(data) is null)
             return false;
-        var asset = await AddAsync(data, cancellationToken).ConfigureAwait(false);
+        var asset = await AddAsync(data, null, cancellationToken).ConfigureAwait(false);
         await store.MarkAssetUploadedAsync(asset.Sha256, cancellationToken).ConfigureAwait(false);
         return true;
     }

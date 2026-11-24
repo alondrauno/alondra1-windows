@@ -44,6 +44,7 @@ public partial class MainWindow : Window
         ApplyBackground();
         ReaderBody.HtmlFailed += reason => _model.ReportHtmlFailure(reason);
         model.MessageStateChanged += RedrawRow;
+        Closing += SaveOpenNoteBeforeClosing;
         Loaded += async (_, _) =>
         {
             Trace("await model.InitializeAsync();");
@@ -114,6 +115,30 @@ public partial class MainWindow : Window
         _model.Config.Appearance.GroupMailByAccount = enabled;
         SetGrouping(_model.Messages, nameof(StoredMessage.AccountId), enabled);
         _model.ConfigStoreSave();
+    }
+
+    private bool _noteSavedForClose;
+
+    /// <summary>
+    /// Notes spec §8.2: closing the app saves the open note's latest edits first. The close is postponed until the
+    /// editor's document is stored, then repeated (Close cannot be called from inside Closing).
+    /// </summary>
+    private async void SaveOpenNoteBeforeClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_noteSavedForClose || !_model.Notes.HasNote)
+            return;
+        e.Cancel = true;
+        _noteSavedForClose = true;
+        try
+        {
+            await _model.Notes.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Saving the open note on close failed: " + ex.Message);
+        }
+
+        _ = Dispatcher.BeginInvoke(Close);
     }
 
     private async Task StartTasksAsync()

@@ -353,7 +353,7 @@ public sealed partial class NotesViewModel : ObservableObject
                 var info = new FileInfo(path);
                 if (info.Length > Assets.MaxBytes)
                     throw new NoteAssetException($"{info.Name} is larger than {Assets.MaxBytes >> 20} MB.");
-                var asset = await Assets.AddAsync(await File.ReadAllBytesAsync(path));
+                var asset = await Assets.AddAsync(await File.ReadAllBytesAsync(path), await OpenNoteAssetsAsync());
                 await _editor.CallAsync("insertAsset", new JsonObject { ["assetId"] = asset.Sha256, ["width"] = asset.Width, ["name"] = info.Name });
             }
             catch (Exception ex) when (ex is NoteAssetException or IOException or UnauthorizedAccessException)
@@ -363,11 +363,18 @@ public sealed partial class NotesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Pictures the open note uses now (its edits are saved first), for the per-note picture limit.</summary>
+    private async Task<IReadOnlyCollection<string>> OpenNoteAssetsAsync()
+    {
+        await FlushAsync();
+        return _openId is { } id && _board is not null && await _board.GetAsync(id) is { } note ? note.Assets : [];
+    }
+
     private async Task StoreImageAsync(string requestId, byte[] data)
     {
         try
         {
-            var asset = await Assets!.AddAsync(data);
+            var asset = await Assets!.AddAsync(data, await OpenNoteAssetsAsync());
             await _editor!.CallAsync("imageStored", new JsonObject { ["requestId"] = requestId, ["assetId"] = asset.Sha256, ["width"] = asset.Width });
         }
         catch (NoteAssetException ex)
@@ -588,7 +595,7 @@ public sealed partial class NotesViewModel : ObservableObject
         {
             try
             {
-                var asset = await Assets!.AddAsync(data);
+                var asset = await Assets!.AddAsync(data, assets);
                 assets.Add(asset.Sha256);
                 content.Add(new JsonObject { ["type"] = "image", ["attrs"] = new JsonObject { ["assetId"] = asset.Sha256, ["caption"] = name, ["width"] = asset.Width > 600 ? 600 : null } });
             }
