@@ -40,6 +40,8 @@ public sealed class MailBodyView : Grid
     private int _sequence;
     private string _currentUrl = "";
     private string _currentDocument = "";
+    private ulong _currentNavigation;
+    private bool _currentNavigationDone;
     private bool _ready;
 
     public MailBodyView()
@@ -167,10 +169,21 @@ public sealed class MailBodyView : Grid
         core.ContextMenuRequested += Core_ContextMenuRequested;
         core.NavigationCompleted += (_, e) =>
         {
-            if (!e.IsSuccess && core.Source.StartsWith(Host, StringComparison.Ordinal))
-                HtmlFailed?.Invoke("Unable to display HTML (" + e.WebErrorStatus + ").");
-            else
+            // Selecting messages or switching folders quickly replaces a page that is still loading. Only the current
+            // page may report a result: a superseded (canceled) load is not a failure of HTML display.
+            if (e.NavigationId != _currentNavigation)
+            {
+                // Safeguard: if a replaced page still ended up on screen, show the current message again.
+                if (core.Source != _currentUrl && core.Source.StartsWith(Host + "message/", StringComparison.Ordinal) && _currentNavigationDone)
+                    core.Navigate(_currentUrl);
+                return;
+            }
+
+            _currentNavigationDone = true;
+            if (e.IsSuccess)
                 DocumentShown?.Invoke();
+            else if (e.WebErrorStatus is not (CoreWebView2WebErrorStatus.OperationCanceled or CoreWebView2WebErrorStatus.ConnectionAborted))
+                HtmlFailed?.Invoke("Unable to display HTML (" + e.WebErrorStatus + ").");
         };
         _ready = true;
         Show();
@@ -203,6 +216,13 @@ public sealed class MailBodyView : Grid
     {
         var core = _web!.CoreWebView2;
         var uri = e.Request.Uri;
+        if (uri.StartsWith(Host + "message/", StringComparison.Ordinal) && uri != _currentUrl)
+        {
+            // A reader page that has since been replaced (the user moved on while it loaded): an empty page, not an error.
+            e.Response = core.Environment.CreateWebResourceResponse(new MemoryStream([]), 200, "OK", "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store");
+            return;
+        }
+
         if (uri == _currentUrl)
         {
             var bytes = Encoding.UTF8.GetBytes(_currentDocument);
@@ -230,7 +250,18 @@ public sealed class MailBodyView : Grid
     private void Core_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
         if (e.Uri == _currentUrl)
+        {
+            _currentNavigation = e.NavigationId;
+            _currentNavigationDone = false;
             return;
+        }
+
+        if (e.Uri.StartsWith(Host + "message/", StringComparison.Ordinal))
+        {
+            e.Cancel = true; // an older reader page; the current one is on its way
+            return;
+        }
+
         e.Cancel = true;
         BlockedNavigations++;
         if (e.IsUserInitiated)
