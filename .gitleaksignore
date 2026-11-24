@@ -1,0 +1,3 @@
+# Reviewed false positives in history (no credentials): environment-variable name lists, test strings, host names.
+# Format: commit:file:rule:line. New findings still fail the scan.
+8ff052a6b4e5866a7a3aaeb87be4376bc6a082be:tests/Alondra1.Tests/MailListTests.cs:generic-api-key:144
