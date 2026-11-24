@@ -1,0 +1,31 @@
+{
+  "schema": "alondra1.discovery/v1",
+  "environment": "prod",
+  "version": 3,
+  "issued_at": "2026-11-30T00:00:00Z",
+  "expires_at": "2026-12-30T00:00:00Z",
+  "endpoints": [
+    {
+      "id": "api",
+      "url": "https://api.example.com",
+      "region": "eu1",
+      "priority": 20,
+      "enabled": true,
+      "service": "alondra1-api",
+      "api_versions": [
+        "v1"
+      ]
+    },
+    {
+      "id": "eu1",
+      "url": "https://eu1.api.alondra1.com",
+      "region": "eu1",
+      "priority": 10,
+      "enabled": true,
+      "service": "alondra1-api",
+      "api_versions": [
+        "v1"
+      ]
+    }
+  ]
+}

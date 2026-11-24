@@ -1,0 +1,34 @@
+{
+  "endpoints": [
+    {
+      "id": "api",
+      "url": "https://api.alondra1.com",
+      "region": "eu1",
+      "priority": 20,
+      "enabled": true,
+      "service": "alondra1-api",
+      "api_versions": [
+        "v1"
+      ]
+    },
+    {
+      "id": "eu1",
+      "url": "https://eu1.api.alondra1.com",
+      "region": "eu1",
+      "priority": 10,
+      "enabled": true,
+      "service": "alondra1-api",
+      "api_versions": [
+        "v1"
+      ]
+    }
+  ],
+  "environment": "prod",
+  "expires_at": "2026-12-01T01:00:00Z",
+  "future_field": {
+    "x": 1
+  },
+  "issued_at": "2026-11-30T23:00:00Z",
+  "schema": "alondra1.discovery/v1",
+  "version": 5
+}

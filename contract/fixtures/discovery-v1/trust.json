@@ -1,0 +1,14 @@
+{
+  "keys": [
+    {
+      "environment": "dev",
+      "key_id": "test-dev-1",
+      "public_key": "wveBhOofd4tjlf4st+KRacDB33sEcH+LfNcBiYH94cA="
+    },
+    {
+      "environment": "prod",
+      "key_id": "test-prod-1",
+      "public_key": "c2apCcZKnt36d0RJkf2nuy3UvOFfR9H+RUZsqwcbIns="
+    }
+  ]
+}

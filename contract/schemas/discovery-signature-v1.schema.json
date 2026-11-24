@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alondra1.com/schemas/discovery-signature-v1.schema.json",
+  "title": "Detached signature of a discovery manifest (manifest.json.sig)",
+  "type": "object",
+  "required": ["alg", "key_id", "signature"],
+  "properties": {
+    "alg": { "const": "Ed25519" },
+    "key_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "signature": { "type": "string", "description": "Standard base64 (with padding) of the 64-byte Ed25519 signature over the exact manifest.json bytes." }
+  }
+}

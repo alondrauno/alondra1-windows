@@ -1,0 +1,440 @@
+{
+  "cases": [
+    {
+      "name": "valid-prod",
+      "description": "Signed prod manifest; endpoints ordered by priority",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "valid-prod/manifest.json",
+      "signature": "valid-prod/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": true,
+        "endpoint_ids": [
+          "eu1",
+          "api"
+        ]
+      }
+    },
+    {
+      "name": "valid-dev",
+      "description": "Signed dev manifest",
+      "environment": "dev",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "valid-dev/manifest.json",
+      "signature": "valid-dev/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": true,
+        "endpoint_ids": [
+          "eu1",
+          "api"
+        ]
+      }
+    },
+    {
+      "name": "disabled-endpoint-skipped",
+      "description": "Disabled endpoints are not used",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "disabled-endpoint-skipped/manifest.json",
+      "signature": "disabled-endpoint-skipped/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": true,
+        "endpoint_ids": [
+          "api"
+        ]
+      }
+    },
+    {
+      "name": "unknown-fields-ignored",
+      "description": "Fields a client does not know are ignored",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "unknown-fields-ignored/manifest.json",
+      "signature": "unknown-fields-ignored/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": true,
+        "endpoint_ids": [
+          "eu1",
+          "api"
+        ]
+      }
+    },
+    {
+      "name": "newer-than-cached",
+      "description": "A higher version replaces the cached manifest",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "newer-than-cached/manifest.json",
+      "signature": "newer-than-cached/manifest.json.sig",
+      "cached": "newer-than-cached/cached.json",
+      "expect": {
+        "ok": true,
+        "endpoint_ids": [
+          "eu1",
+          "api"
+        ]
+      }
+    },
+    {
+      "name": "same-as-cached",
+      "description": "Re-downloading the identical manifest is accepted",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "same-as-cached/manifest.json",
+      "signature": "same-as-cached/manifest.json.sig",
+      "cached": "same-as-cached/cached.json",
+      "expect": {
+        "ok": true,
+        "endpoint_ids": [
+          "eu1",
+          "api"
+        ]
+      }
+    },
+    {
+      "name": "forged-content",
+      "description": "Manifest changed after signing",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "forged-content/manifest.json",
+      "signature": "forged-content/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_SIGNATURE"
+      }
+    },
+    {
+      "name": "wrong-key-same-id",
+      "description": "Signed by another key under a trusted key id",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "wrong-key-same-id/manifest.json",
+      "signature": "wrong-key-same-id/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_SIGNATURE"
+      }
+    },
+    {
+      "name": "untrusted-key",
+      "description": "Key id is not in the client's trust list",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "untrusted-key/manifest.json",
+      "signature": "untrusted-key/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "UNTRUSTED_KEY"
+      }
+    },
+    {
+      "name": "dev-key-in-prod-client",
+      "description": "A dev-signed manifest is never trusted by a prod client",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "dev-key-in-prod-client/manifest.json",
+      "signature": "dev-key-in-prod-client/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "UNTRUSTED_KEY"
+      }
+    },
+    {
+      "name": "cross-environment",
+      "description": "Prod key, but the manifest says dev",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "cross-environment/manifest.json",
+      "signature": "cross-environment/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "WRONG_ENVIRONMENT"
+      }
+    },
+    {
+      "name": "signature-not-base64",
+      "description": "Signature field is not base64",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "signature-not-base64/manifest.json",
+      "signature": "signature-not-base64/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_SIGNATURE"
+      }
+    },
+    {
+      "name": "wrong-algorithm",
+      "description": "Only Ed25519 is accepted",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "wrong-algorithm/manifest.json",
+      "signature": "wrong-algorithm/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_SIGNATURE"
+      }
+    },
+    {
+      "name": "expired",
+      "description": "Past expires_at",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "expired/manifest.json",
+      "signature": "expired/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "EXPIRED"
+      }
+    },
+    {
+      "name": "not-yet-valid",
+      "description": "issued_at more than 5 minutes in the future",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "not-yet-valid/manifest.json",
+      "signature": "not-yet-valid/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "NOT_YET_VALID"
+      }
+    },
+    {
+      "name": "validity-too-long",
+      "description": "Validity above 90 days",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "validity-too-long/manifest.json",
+      "signature": "validity-too-long/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_VALIDITY"
+      }
+    },
+    {
+      "name": "rollback",
+      "description": "Older version than the cached one",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "rollback/manifest.json",
+      "signature": "rollback/manifest.json.sig",
+      "cached": "rollback/cached.json",
+      "expect": {
+        "ok": false,
+        "error": "ROLLBACK"
+      }
+    },
+    {
+      "name": "same-version-different-content",
+      "description": "Same version, different content",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "same-version-different-content/manifest.json",
+      "signature": "same-version-different-content/manifest.json.sig",
+      "cached": "same-version-different-content/cached.json",
+      "expect": {
+        "ok": false,
+        "error": "ROLLBACK"
+      }
+    },
+    {
+      "name": "unsupported-schema",
+      "description": "Unknown schema version",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "unsupported-schema/manifest.json",
+      "signature": "unsupported-schema/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "UNSUPPORTED_SCHEMA"
+      }
+    },
+    {
+      "name": "http-scheme",
+      "description": "Plain HTTP endpoint",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "http-scheme/manifest.json",
+      "signature": "http-scheme/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "foreign-host",
+      "description": "Host outside the allowlist",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "foreign-host/manifest.json",
+      "signature": "foreign-host/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "dev-host-in-prod",
+      "description": "Dev endpoint in a prod manifest",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "dev-host-in-prod/manifest.json",
+      "signature": "dev-host-in-prod/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "prod-host-in-dev",
+      "description": "Prod endpoint in a dev manifest",
+      "environment": "dev",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "prod-host-in-dev/manifest.json",
+      "signature": "prod-host-in-dev/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "credentials-in-url",
+      "description": "User info in the URL",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "credentials-in-url/manifest.json",
+      "signature": "credentials-in-url/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "port-in-url",
+      "description": "Explicit port",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "port-in-url/manifest.json",
+      "signature": "port-in-url/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "path-in-url",
+      "description": "Path in the URL",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "path-in-url/manifest.json",
+      "signature": "path-in-url/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "suffix-trick",
+      "description": "Allowed name as a prefix of a foreign host",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "suffix-trick/manifest.json",
+      "signature": "suffix-trick/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "duplicate-id",
+      "description": "Two endpoints with one id",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "duplicate-id/manifest.json",
+      "signature": "duplicate-id/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "wrong-service",
+      "description": "Endpoint for another service",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "wrong-service/manifest.json",
+      "signature": "wrong-service/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "BAD_ENDPOINT"
+      }
+    },
+    {
+      "name": "no-enabled-endpoints",
+      "description": "Nothing usable",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "no-enabled-endpoints/manifest.json",
+      "signature": "no-enabled-endpoints/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "NO_ENDPOINTS"
+      }
+    },
+    {
+      "name": "no-v1-endpoints",
+      "description": "No endpoint speaks API v1",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "no-v1-endpoints/manifest.json",
+      "signature": "no-v1-endpoints/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "NO_ENDPOINTS"
+      }
+    },
+    {
+      "name": "zero-version",
+      "description": "Version must be positive",
+      "environment": "prod",
+      "now": "2026-12-01T00:00:00Z",
+      "manifest": "zero-version/manifest.json",
+      "signature": "zero-version/manifest.json.sig",
+      "cached": null,
+      "expect": {
+        "ok": false,
+        "error": "MALFORMED"
+      }
+    }
+  ],
+  "format": "alondra1.discovery/v1 fixture cases",
+  "generated_by": "alondra1-infra: go run ./cmd/discovery fixtures -out tests/fixtures",
+  "trust": "trust.json"
+}

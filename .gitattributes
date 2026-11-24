@@ -3,3 +3,5 @@
 *.png binary
 *.bmp binary
 *.ico binary
+# Discovery fixtures are signed byte for byte: never convert their line endings.
+contract/fixtures/discovery-v1/** -text
