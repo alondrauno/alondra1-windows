@@ -6,9 +6,11 @@ Alondra1 is a Windows desktop app (WPF, .NET 10) for mail, calendar, tasks, note
 
 - Settings, the local mail copy, local tasks, and credentials live in one folder in the user's profile.
 - Nothing is sent anywhere except to the mail and organizer accounts the user adds.
-- There is no telemetry. The Windows app does not contact any Alondra1 server.
+- There is no telemetry. The Windows app contacts the Alondra1 cloud only after the user signs in to an Alondra1 account (Settings → Cloud).
 
-An **optional cloud** is being built in a separate repository ([ADR 0001](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0001-opt-in-cloud.md), [backend spec](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/BACKEND_SPEC.md)): a Go API with PostgreSQL in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend), sharing the task contract mirrored in [`contract/`](../contract). So far it provides email one-time-code sign-in (Milestone B), spaces with roles and invitations (Milestone C), private storage of tasks, lists, groups, and settings (Milestone D), and multi-device sync with conflicts (Milestone E); the Windows app is not connected to it. See [Repository layout](#repository-layout) and [Cloud backend](#cloud-backend-in-progress).
+An **optional cloud** lives in a separate repository ([ADR 0001](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0001-opt-in-cloud.md), [backend spec](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/BACKEND_SPEC.md)): a Go API with PostgreSQL in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend), sharing the task contract mirrored in [`contract/`](../contract) and the notes document format and editor. The Windows app uses it for sign-in, plans, Cloud Sync of tasks and notes, and the Mail Archive ([CLOUD.md](CLOUD.md)). See [Cloud backend](#cloud-backend).
+
+[FEATURE-MAP.md](FEATURE-MAP.md) lists every feature with the code that implements it.
 
 This page explains how the code is organized and how data moves through it. [CODE-GUIDE.md](CODE-GUIDE.md) is the file-by-file reference, and [GUIDELINES.md](GUIDELINES.md) has the rules for changing it.
 
@@ -119,15 +121,26 @@ Local actions (read or unread, archive, delete, move) are applied locally first.
 - flags changed in both places are merged;
 - otherwise the side that changed wins.
 
-## Organizer: calendar, notes, contacts, account tasks
+## Organizer: calendar, contacts, account tasks
 
 `OrganizerGateway` talks to Microsoft Graph and to the Google Calendar, Tasks, People, and Drive APIs:
 - Features are turned on per installation (Settings → Connections → Features).
 - `GetStatusAsync` reports a `CapabilityStatus`, for example "consent missing", instead of failing silently.
-- Notes are stored as files in the provider's **app folder** (OneDrive app folder or Drive app data), not OneNote or Keep.
+- Plain-text notes that earlier versions kept in the provider's **app folder** (OneDrive app folder or Drive app data) can be imported once into the local Notes module.
 - For Personal accounts, organizer items are cached in `personal.db`.
 
-The Calendar workspace shows account events. Local task dates appear in the To-do workspace's own calendar.
+The Calendar workspace shows account events, each with a **Meeting notes** action that opens or creates a linked local note. Local task dates appear in the To-do workspace's own calendar.
+
+## Local Notes
+
+Rich-text notes are local, stored in `todo.db`, and work without any account ([NOTES.md](NOTES.md)).
+
+| Layer | Types |
+| --- | --- |
+| Domain (`Alondra1.Core/Notes`) | `NotesBoard` (the single writer of notes and folders), `NotesModels`, `NoteAssets` (pictures by SHA-256), `NoteMerge` (conflict compare and combine, meeting template) |
+| Persistence | `SqliteTaskStore.Notes.cs` (`notes`, `note_folders`, `note_assets`, FTS5 `notes_fts`) |
+| Presentation (`Alondra1.App/Notes`) | `NotesView`, `NotesViewModel`, `NoteEditorHost` (WebView2), `NoteConflictDialog` |
+| Editor | The shared web editor (Tiptap/ProseMirror) built in alondra1-backend `contract/notes-editor` and copied into `Assets/NotesEditor`. Windows and Android run the same bundle, so documents round-trip exactly. |
 
 ## Local To-do
 
@@ -172,7 +185,8 @@ Everything Alondra1 stores is under `%LOCALAPPDATA%\alondra1`:
 | `secrets\` | Passwords and OAuth tokens, protected with Windows DPAPI for the current user. |
 | `personal.db` | Local mail for Personal accounts, FTS5 search index, outbox, organizer cache. |
 | `files\` | Downloaded mail attachments (pinned or cache). |
-| `todo.db` | Local tasks, lists, groups, history, preferences. |
+| `todo.db` | Local tasks, lists, groups, history, preferences; notes and note folders; Cloud Sync outbox, versions and issues. |
+| `notes-assets\` | Note pictures, one file per SHA-256. |
 | `task-files\` | Files attached to local tasks (copies). |
 | `backups\` | Daily to-do backups (`*.atodo`, last 7 kept) and safety copies made before a restore. |
 | `backgrounds\` | The user's own background picture, re-encoded. |
@@ -194,7 +208,7 @@ The installer puts the program in `%LOCALAPPDATA%\Programs\Alondra1`. It never t
 - Sync for each account is serialized. Different accounts can sync in parallel.
 - Expected failures (network, authentication, storage) become a status, such as "Offline" or "Sync failed", or a readable alert. An unhandled exception is written to `logs\crash.txt` and shown once before the app closes.
 
-## Cloud backend (in progress)
+## Cloud backend
 
 The backend is a stateless Go HTTP API with PostgreSQL, run with Docker Compose for now ([runbook](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/compose.md)). It is a separate implementation; the Windows app stays C#/WPF and keeps working without it.
 
@@ -203,8 +217,9 @@ The backend is a stateless Go HTTP API with PostgreSQL, run with Docker Compose 
 - **Implemented (Milestone D):** tasks, lists, groups, and completion history in the todo-v1 format, private per user within a space; versions with `If-Match` and conflict copies; reference checks and delete cascades; allowlisted portable settings; account export. Decisions: [ADR 0004](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0004-cloud-task-storage.md).
 - **Implemented (Milestone E):** change log written in the same transaction as every write (commit-ordered per space), paged bootstrap with a watermark, signed change cursors bound to user and space with `410` below the retention floor, idempotent push with per-device receipts, visible conflicts including delete-versus-edit, and a reference offline-first client used by the multi-device tests. Client rules: [ADR 0005](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0005-sync-protocol.md).
 - **Implemented (Milestone F):** retention job enforcing ADR 0003 (with cursor floors), Prometheus metrics on an internal port, alert rules, zero-downtime token-key rotation, readiness draining, a Caddy TLS proxy profile, encrypted backups (age, public key only on the server) with an automatic restore check of every dump, and a release pipeline that tests, scans, signs, and publishes images by digest behind a human approval. Runbooks: [production](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/production.md), [backups](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/backup-restore.md), [monitoring](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/monitoring.md), [release](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/release.md).
-- **Next:** the Windows cloud adapter (outbox in `todo.db`, remote apply through `TaskBoard`, Connect Cloud and space UI, conflict queue).
-- **Boundary with local tasks:** [ADR 0002](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0002-local-cloud-task-boundary.md). `TaskBoard` stays the only task writer; a separate cloud adapter project will talk to the API; mail, calendar, contacts, provider notes, account tasks, and secrets are never uploaded.
+- **Implemented later (platform release 1.1):** notes, note folders and note pictures, calendar events, plans and entitlements, the Mail Archive, and the admin panel.
+- **Windows client:** `Alondra1.Core/Cloud` (`CloudApi`, `CloudAccount`, `CloudSyncEngine`, `ArchiveClient`) and `Alondra1.App/Cloud`. The outbox lives in `todo.db`; remote changes are applied through `TaskBoard` and `NotesBoard`; see [CLOUD.md](CLOUD.md).
+- **Boundary with local data:** [ADR 0002](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0002-local-cloud-task-boundary.md). `TaskBoard` and `NotesBoard` stay the only writers; mail (except messages the user archives), calendar, contacts, provider notes, account tasks, and secrets are never uploaded.
 - **Contract:** [openapi.yaml](https://github.com/nikita4sea/alondra1-backend/blob/main/contract/openapi.yaml) and [todo-v1.schema.json](../contract/schemas/todo-v1.schema.json). Tests on both sides fail when code and contract disagree.
 
 ## Build and packaging

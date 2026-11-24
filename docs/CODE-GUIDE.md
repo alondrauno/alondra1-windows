@@ -2,7 +2,7 @@
 
 <img src="images/alondra1-logo-64.png" alt="" width="48" align="right">
 
-This guide is a reference to the source tree: what each file does, where to make common changes, the command-line switches, and the tests. Read [ARCHITECTURE.md](ARCHITECTURE.md) first for the overall design.
+This guide is a reference to the source tree: what each file does, where to make common changes, the command-line switches, and the tests. Read [ARCHITECTURE.md](ARCHITECTURE.md) first for the overall design. To find the code behind a user-visible behavior, start from [FEATURE-MAP.md](FEATURE-MAP.md).
 
 ## Getting started
 
@@ -37,6 +37,17 @@ Plain .NET with no I/O. Everything here can be unit-tested directly.
 
 | File | Contents |
 | --- | --- |
+| `Cloud/CloudApi.cs` | HTTPS client for the Alondra1 API: bearer auth, one token refresh at a time, `X-Request-ID`, typed `CloudApiException` codes. |
+| `Cloud/CloudAccount.cs` | Email-code sign-in, spaces, entitlements, plans, devices, log out. |
+| `Cloud/CloudContracts.cs` | `CloudKinds`, `SyncState`, `SyncStatus`, `SyncIssue` (with the note conflict copy), `ICloudSyncStore`. |
+| `Cloud/CloudSyncEngine.cs` | Cloud Sync: enable and merge, outbox push in batches, pull, bootstrap, conflicts (`KeepBothAsync`), note pictures. |
+| `Cloud/ArchiveClient.cs` | Mail Archive: ingest, search, delete. |
+| `Html/MailHtml.cs` | Builds the reader document: sanitized HTML, CSP, remote-image policy, plain-text rendering with links. |
+| `Mail/ReaderPolicy.cs`, `Mail/MessageCount.cs`, `Mail/SpecialFolders.cs` | When remote images load; the message-count text; special-folder detection. |
+| `Notes/NotesModels.cs` | `Note`, `NoteLink`, `NoteFolder`, `NoteSummary`, `NoteAsset`, `INoteStore`, `NoteChangeSet`. |
+| `Notes/NotesBoard.cs` | The only writer of notes and folders: create, save content, organize, trash and purge, links, conflict copies, `ResolveConflictAsync`, `FindLinkedAsync`, remote apply. |
+| `Notes/NoteAssets.cs` | Note pictures: sniffing, dimensions, per-picture and per-note limits, content-addressed files. |
+| `Notes/NoteMerge.cs` | `NoteMerge` (line and block alignment, combine), `NoteConflictChoice`, and `MeetingNotes` (the meeting template). |
 | `Config/Configuration.cs` | The configuration schema: `AppConfig`, `AppearanceSettings`, `BackgroundSettings` (with clamping and upgrades in `Normalized()`), `LayoutSettings`, `OAuthClientSettings`, `AccountConfig`, `IncomingSettings`, `OutgoingSettings`. Also `ProviderPresets` (Microsoft 365 and Gmail endpoints), `ConfigJson` (serializer options), `ConfigSchema` (version), and `ConfigWorkflow` (validation, import plans, plaintext and OAuth checks). |
 | `Demo/SampleCatalog.cs` | Labeled sample mail, events, notes, and contacts for `--demo`. |
 | `Html/HtmlMailSanitizer.cs` | `ToPlainText` (used for mail bodies) and `Sanitize` (strips scripts, event handlers, dangerous URLs, and remote images). |
@@ -60,13 +71,15 @@ Plain .NET with no I/O. Everything here can be unit-tested directly.
 | File | Contents |
 | --- | --- |
 | `MailKitGateway.cs` | `IMailGateway` over MailKit. Covers IMAP and POP3 probing and fetch (checkpointed by UID or UIDL), bodies converted to text, attachment streaming with progress, flag and move commands, IDLE, and SMTP send with classified failures. |
+| `MimeBody.cs`, `MimeHeaders.cs` | Picks the HTML and text bodies, embeds `cid:` pictures, lists attachments; header decoding. |
 
 ## Alondra1.Persistence
 
 | File | Contents |
 | --- | --- |
 | `SqlitePersonalStore.cs` | `personal.db`: messages, bodies, FTS5 index (`messages_fts`), attachments, checkpoints, queued operations, organizer cache. Schema versions use `PRAGMA user_version`. |
-| `SqliteTaskStore.cs` | `todo.db`: one JSON column per entity plus indexed key columns. Includes an ordered `Migrations` list, a pre-migration copy, refusal of newer files, online backup, and validated restore. |
+| `SqliteTaskStore.cs` | `todo.db`: one JSON column per entity plus indexed key columns. Includes an ordered `Migrations` list (schema 5), a pre-migration copy, refusal of newer files, online backup, and validated restore. Also the cloud outbox, versions, meta and sync issues (`ICloudSyncStore`). |
+| `SqliteTaskStore.Notes.cs` | `INoteStore`: notes, folders, pictures and the FTS5 `notes_fts` index in `todo.db`. |
 | `DpapiSecretStore.cs` | One DPAPI-protected file per account. |
 | `ConfigFileStore.cs` | Atomic `config.json` writes with a `.bak` of the last good file. A file from a newer version is refused, never overwritten. |
 | `AttachmentFiles.cs` | Mail attachment files under `files\`. |
@@ -86,7 +99,15 @@ Plain .NET with no I/O. Everything here can be unit-tested directly.
 | `App.xaml(.cs)` | Startup, crash log, command line, demo and theme switches. |
 | `MainWindow.xaml(.cs)` | The shell: header, toolbars, mail list and reader, calendar, notes, contacts, the reminder overlay, keyboard shortcuts, snapshot mode. |
 | `ViewModels/MainViewModel.cs` | `MainViewModel` (all non-To-do workspaces, responsive breakpoints, sync status), `WorkspaceChoice`, `AppServices` (composition root). |
-| `Dialogs.cs` | Shared dialog frame and builders, plus Welcome, Settings (Appearance, Background, Accounts, Connections, Data), Import, Account, Compose, palette editor, and `Alert`. |
+| `Dialogs.cs` | Shared dialog frame and builders, plus Welcome, Settings (Appearance, Background, Mail, Accounts, Connections, Data, Cloud), Import, Account, Compose, palette editor, and `Alert`. |
+| `Controls/MailBodyView.cs` | The isolated WebView2 reader: virtual host, blocked navigation, image loading, stale-navigation handling. |
+| `Cloud/CloudController.cs` | Cloud state for the UI: status, periodic and soon-after-change sync, Mail Archive action. |
+| `Cloud/CloudDialogs.cs` | Settings → Cloud (sign-in, plan, Cloud Sync, sync issues with Compare, archive, devices) and the archive search window. |
+| `Notes/NotesView.xaml(.cs)` | The Notes workspace: sidebar, list, editor pane, conflict banner, menus, drag and drop, keyboard. |
+| `Notes/NotesViewModel.cs` | Notes state and actions: views, search, open and autosave, pictures, links, mail notes, meeting notes, conflicts, import and export. |
+| `Notes/NoteEditorHost.cs` | WebView2 host of the shared notes editor (`Assets/NotesEditor`): virtual hosts, picture serving, the message bridge. |
+| `Notes/NoteConflictDialog.cs` | Compare versions of a conflicted note and resolve it. |
+| `Notes/NotesSamples.cs` | Sample notes for demo mode, and the sample conflict for `--dialog=conflict`. |
 | `ThemeService.cs` | Applies Light or Dark tokens and custom colors, and makes panels translucent when a background is on. |
 | `Converters.cs` | Value converters used by the XAML. |
 | `Controls/Alondra1Icon.cs` | The icon element (`Kind`, `IconSize`). |
@@ -108,7 +129,7 @@ Plain .NET with no I/O. Everything here can be unit-tested directly.
 | `Themes/Light.xaml`, `Dark.xaml` | Color tokens. Both files must define the same keys. |
 | `Themes/Controls.xaml` | Size, radius, and font tokens and every control style. |
 | `Themes/Icons.xaml` | Icon path data (24 × 24). |
-| `Assets/` | `alondra1.ico`, `logo-64.png`, `Backgrounds/*.jpg`. |
+| `Assets/` | `alondra1.ico`, `logo-64.png`, `Backgrounds/*.jpg`, `NotesEditor/` (the editor bundle, built in alondra1-backend `contract/notes-editor`; do not edit here). |
 
 ## Common changes
 
@@ -167,7 +188,8 @@ Put decisions in a policy in `Sync/MailPolicies.cs` (pure and testable). Keep `M
 | `--open=<workspace>` | Open `Mail`, `Calendar`, `To-do`, `Notes`, `Contacts`, or `Chat`. |
 | `--width=<px>`, `--height=<px>` | Window size for a snapshot. |
 | `--select=<task title>`, `--detail` | In To-do, select a task, or open the first task's details. |
-| `--dialog=<name>` | Open `compose`, `settings`, `background`, `account`, `welcome`, `list`, or `alert` and capture it. |
+| `--day=<n>` | In Calendar, select day *n* of the shown month (its events and Meeting notes). |
+| `--dialog=<name>` | Open `compose`, `settings`, `background`, `mail`, `account`, `welcome`, `list`, `alert`, or `conflict` (a sample note conflict) and capture it. |
 | `--exit` | Close after the snapshot. |
 
 Example: `Alondra1.exe --demo --open=To-do --theme=dark --snapshot=todo.png --exit`.

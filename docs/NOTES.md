@@ -35,6 +35,14 @@ Local-first rich-text notes (Notes spec). The editor is the shared [notes editor
 - **Unknown content.**
   - A note from a newer version keeps parts this version does not know unchanged (shown as a grey box).
   - A note with a newer document version opens read-only.
+- **Meeting notes.** In Calendar, each event of the selected day has **Meeting notes**. It opens the note linked to that event, or creates one (date and time, Agenda, Notes, Action items checklist) linked to the event. The Android app uses the same template.
+- **Sync conflicts.** When a note was changed on two devices before they synced, both versions are kept: the other device's version keeps the note, and this PC's becomes a **(conflict copy)**. A banner above the note (and **Compare** in Settings → Cloud → Sync issues) opens a side-by-side comparison with the lines that differ marked. You can:
+  - keep the other device's version;
+  - keep this PC's version;
+  - **Combine both**, which puts every block from both versions into the note once and keeps all pictures and links, so you can tidy it up by hand;
+  - keep both as separate notes.
+
+  The conflict copy goes to Trash (restorable), and the result syncs under the note's original id. The conflict copy is remembered in `sync_issues.copy_id` (todo.db schema 5).
 - **Old notes.** Notes that earlier versions kept in a mail account (OneDrive app folder, Google Drive app data) stay there. **More → Import notes from mail accounts** copies them in once.
 
 ## Not done yet (honest list)
@@ -42,7 +50,6 @@ Local-first rich-text notes (Notes spec). The editor is the shared [notes editor
 - Merged table cells. The format allows `colspan` and `rowspan`, but there is no UI to merge.
 - Text wrapping around pictures (pictures are placed between paragraphs).
 - A floating formatting bar for the selection (the toolbar is always shown).
-- **Create meeting notes** from the Calendar view. Today, link an event from the note's **Link** button.
-- Side-by-side conflict merging. A conflict keeps both versions, with a **(conflict copy)** note and a sync issue; you merge them by hand.
+- Merging edits inside the same paragraph automatically. **Combine both** keeps both paragraphs; you choose by hand.
 - Shared notes and live collaboration (future scope).
 - Cloud pictures that no note uses any more are not removed automatically.

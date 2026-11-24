@@ -2,10 +2,10 @@
 
 Alondra1 works fully without an account. Signing in to an Alondra1 account adds, on paid plans:
 
-- **Cloud Sync for To-do:** tasks, lists and list groups, shared with the Android app and other PCs.
+- **Cloud Sync:** tasks, lists, list groups, notes, note folders and note pictures, shared with the Android app and other PCs.
 - **Mail Archive:** cloud copies of messages you choose, with search.
 
-Everything is in **Settings → Cloud**. When Cloud Sync is on, a status button appears in the To-do toolbar.
+Everything is in **Settings → Cloud**. When Cloud Sync is on, a status button appears in the To-do toolbar. Every behavior with its code and tests: [FEATURE-MAP.md](FEATURE-MAP.md) (sections 8 and 9).
 
 ## How it works
 
@@ -15,15 +15,19 @@ Everything is in **Settings → Cloud**. When Cloud Sync is on, a status button 
 | Email-code sign-in, spaces, entitlements, plans, devices, log out | `CloudAccount.cs` |
 | Sync engine: outbox push, then pull, conflicts, bootstrap merge | `CloudSyncEngine.cs` |
 | Mail Archive client | `ArchiveClient.cs` |
-| Outbox, versions, cursor and issues (todo.db schema 3) | `src/Alondra1.Persistence/SqliteTaskStore.cs` |
+| Outbox, versions, cursor and issues (todo.db schema 3; schema 5 adds the conflict copy of a note to its issue) | `src/Alondra1.Persistence/SqliteTaskStore.cs` |
+| Notes, folders and pictures: apply, upload before push, download after pull | `CloudSyncEngine.cs`, `src/Alondra1.Core/Notes/NoteAssets.cs` |
+| Note conflicts: compare and resolve | `src/Alondra1.Core/Notes/NoteMerge.cs`, `NotesBoard.ResolveConflictAsync`, `src/Alondra1.App/Notes/NoteConflictDialog.cs` |
 | UI: status, background sync timer, archive action | `src/Alondra1.App/Cloud/CloudController.cs` |
 | UI: Settings → Cloud page, archive search window | `src/Alondra1.App/Cloud/CloudDialogs.cs` |
 
-- **Single writer.** `TaskBoard` stays the only writer. Remote changes go through `TaskBoard.ApplyRemoteAsync`, which writes the changes, their server versions and the cursor in one transaction, without queueing them again.
+- **Single writer.** `TaskBoard` stays the only writer of tasks and `NotesBoard` of notes. Remote changes go through their `ApplyRemoteAsync`, which writes the changes, their server versions and the cursor in one transaction, without queueing them again.
 - **Outbox.** Once Cloud Sync has been set up, every local change is queued in `sync_outbox`, in the same transaction as the change. A queued item keeps its mutation id until a send is attempted, so retries are idempotent.
 - **Order and patches.** A sync run pushes first, then pulls. Patches are JSON merge patches against the last server copy; a removed field is sent as `null`.
 - **Pull safety.** A pull never overwrites an item that has unsent local edits.
-- **Conflicts keep both versions.** The cloud version keeps the original id, and the local version becomes a new task named "… (conflict copy)". The conflict is listed under **Sync issues**. The copy is pushed in the same sync run.
+- **Conflicts keep both versions.** The cloud version keeps the original id, and the local version becomes a new item named "… (conflict copy)". The conflict is listed under **Sync issues**. The copy is pushed in the same sync run.
+- **Note conflicts can be resolved.** The issue remembers the note's conflict copy. A banner above the note, or **Compare** in Sync issues, opens both versions side by side; the user keeps one, combines both into the note, or keeps both. The copy goes to Trash and the result syncs under the original id.
+- **Pictures.** Note pictures are uploaded before the note that uses them (by SHA-256, so each is uploaded once) and downloaded after a pull when a note needs them. Pushes are sent in batches of about 6 MB.
 - **Turning sync on.** First, todo.db is copied to `backups\todo-before-cloud-*.db`. Then the cloud copy is downloaded and merged; nothing is replaced or deleted. A local default list that has never synced hands its tasks over to the cloud's default list, so each person has exactly one default list.
 - **Plans.** The server's entitlements decide what is allowed. When a plan ends (`grace`, then `read_only`), nothing on the PC is deleted; new changes stay queued locally.
   - Access errors (`TENANT_NOT_FOUND`) turn Cloud Sync off and keep the data.
@@ -31,7 +35,8 @@ Everything is in **Settings → Cloud**. When Cloud Sync is on, a status button 
 - **Secrets.** The refresh token is stored with DPAPI (`secrets\alondra1-cloud`), never in todo.db, config.json or logs. The access token is kept in memory only.
 - **Not synced:**
   - Mail, contacts, task attachments and per-device reminder delivery state.
-  - Notes and Calendar on Windows: they come from the mail providers (Microsoft 365 / Google), not from a local store, so the cloud notes and events written by the Android app are not shown on Windows yet.
+  - Calendar events: the Windows Calendar shows the mail accounts' calendars, so the cloud events written by the Android app are not shown on Windows yet.
+  - Data from the mail providers (account tasks, provider notes, contacts).
 - **Payments.** Payment is a placeholder: the price list comes from the backend catalog, and upgrades will open from the account page. See alondra1-backend `docs/BILLING_SPEC.md`.
 
 ## Configuration

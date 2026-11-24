@@ -181,9 +181,9 @@ Statuses: **Already supported**, **Implemented**, **Partially implemented**, **N
 | iCalendar import | Not implemented | |
 | Encrypted backups | Not implemented | DPAPI would tie a backup to this Windows account, so it could not be restored on another PC. Backups are plain SQLite files in the user's profile. |
 
-### Excluded by the request
+### Outside the local engine
 
-Cloud sync, remote databases, accounts, sharing, collaboration, push services, telemetry, and external integrations: **Not applicable**. None were added.
+The local engine itself has no network code, accounts, sharing or telemetry. Optional Cloud Sync of tasks, lists and groups, added later, lives outside it (`CloudSyncEngine` writes through `TaskBoard`); see [CLOUD.md](CLOUD.md). Sharing and collaboration are not implemented.
 
 ## Limitations
 

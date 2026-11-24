@@ -6,8 +6,8 @@
 
 **Alondra1** is a calm, lightweight Windows app for your mail, calendar, tasks, notes, and contacts.
 
-- **Local-first.** Your settings, local mail, and tasks live on your PC, and the To-do workspace works with no account or network at all.
-- **Private.** Alondra1 has no servers, no telemetry, and no ads. It connects only to the mail accounts you add.
+- **Local-first.** Your settings, local mail, tasks and notes live on your PC, and To-do and Notes work with no account or network at all.
+- **Private.** No telemetry and no ads. It connects only to the mail accounts you add and, if you choose to sign in, to the optional Alondra1 cloud.
 
 <p align="center">
   <img src="docs/screenshots/mail-light.png" alt="Alondra1 mail in the light theme" width="49%">
@@ -22,11 +22,13 @@
   - Safe sending that never duplicates a message.
   - Dockable layout.
 - **To-do:** lists and groups, steps, due dates, repeats, reminders, natural-language quick add, smart views, a task calendar, undo, and backup, import, and export. All of it works offline.
-- **Calendar, Notes, Contacts:** from your connected Microsoft 365 or Google accounts.
+- **Notes:** rich text with tables, checklists and pictures, folders, search, links to tasks, events and mail, and export. Stored locally; the same editor as the Android app.
+- **Calendar and Contacts:** from your connected Microsoft 365 or Google accounts, with meeting notes for any event.
+- **Optional cloud (paid plans):** Cloud Sync of tasks and notes with Android and other PCs, and a Mail Archive with search.
 - **Your look:** light and dark themes in the Alondra1 lavender palette, custom colors, and background pictures that are processed on your PC.
 - **Simple install:** a per-user setup with no administrator prompt. Updates and uninstalls never touch your data.
 
-See [docs/FEATURES.md](docs/FEATURES.md) for the complete list.
+See [docs/FEATURES.md](docs/FEATURES.md) for the complete list, and [docs/FEATURE-MAP.md](docs/FEATURE-MAP.md) for every atomic feature with its code and tests.
 
 ## Install
 
@@ -56,8 +58,9 @@ Optional test settings (scale test, live mailboxes, fixture updates) are listed 
 | Document | For |
 | --- | --- |
 | [Features](docs/FEATURES.md) | Everything Alondra1 does today, by workspace, and the known gaps. |
+| [Feature map](docs/FEATURE-MAP.md) | Every capability, feature and atomic feature with status, code, tests, and recipes for adding features. |
 | [Notes](docs/NOTES.md) | The rich-text Notes module: editor, storage, pictures, sync, limits. |
-| [Cloud](docs/CLOUD.md) | Optional Alondra1 account: Cloud Sync for To-do and Mail Archive (paid plans), and how to test against the backend. |
+| [Cloud](docs/CLOUD.md) | Optional Alondra1 account: Cloud Sync of tasks and notes, and Mail Archive (paid plans), and how to test against the backend. |
 | [Architecture](docs/ARCHITECTURE.md) | Projects, ports and adapters, sync, storage, security, threading. |
 | [Code guide](docs/CODE-GUIDE.md) | File-by-file reference, common changes, command-line switches, tests. |
 | [Guidelines](docs/GUIDELINES.md) | Principles and rules for code, data, security, UI, testing, and releases. |
@@ -88,7 +91,7 @@ Optional test settings (scale test, live mailboxes, fixture updates) are listed 
 
 ## Related repositories
 
-The optional cloud (Go API, OpenAPI contract, decisions, runbooks) is in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend); the Windows app does not use it yet. Other clients: [alondra1-android](https://github.com/nikita4sea/alondra1-android), [alondra1-iphone](https://github.com/nikita4sea/alondra1-iphone), [alondra1-mac](https://github.com/nikita4sea/alondra1-mac) (not started). Website: [alondra1-www](https://github.com/nikita4sea/alondra1-www).
+The optional cloud (Go API, OpenAPI contract, the shared notes editor, decisions, runbooks) is in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend); the Windows app uses it only after the user signs in. Other clients: [alondra1-android](https://github.com/nikita4sea/alondra1-android), [alondra1-iphone](https://github.com/nikita4sea/alondra1-iphone), [alondra1-mac](https://github.com/nikita4sea/alondra1-mac) (not started). Website: [alondra1-www](https://github.com/nikita4sea/alondra1-www).
 
 ## Logo
 

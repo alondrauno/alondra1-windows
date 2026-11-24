@@ -2,7 +2,7 @@
 
 <img src="images/alondra1-logo-64.png" alt="" width="48" align="right">
 
-What Alondra1 1.3.0 does today, by workspace. Each workspace has a keyboard shortcut (Ctrl+1 … Ctrl+6). Items marked *Not yet* are known gaps, not hidden features.
+What Alondra1 does today, by workspace. Each workspace has a keyboard shortcut (Ctrl+1 … Ctrl+6). Items marked *Not yet* are known gaps, not hidden features. [FEATURE-MAP.md](FEATURE-MAP.md) lists every atomic feature with its code, tests and status, for planning new work.
 
 | Mail | To-do |
 | --- | --- |
@@ -35,6 +35,7 @@ What Alondra1 1.3.0 does today, by workspace. Each workspace has a keyboard shor
 - Attachments are listed with name, type, and size, with **Open** and **Save**. Files that can run programs ask before opening.
 - Search follows the selected account and folder. Personal accounts use a full-text index (tested with 10,000 messages).
 - Sync on demand with F5 or More → Sync now. The status dot shows Up to date, Syncing…, Offline, Sync failed, Sample data, or No accounts.
+- Switching folders quickly never shows an error page for the previous message.
 
 **Writing**
 
@@ -53,23 +54,30 @@ What Alondra1 1.3.0 does today, by workspace. Each workspace has a keyboard shor
 - Settings → Mail: open messages as HTML or plain text, remote images (ask or always), trusted senders, row density (32 or 40 px), and pane positions.
 - POP3 accounts never import the same message twice (UIDL), and they delete from the server only when you turn that on.
 
+**Notes and archive**
+
+- More → **Create note from this email** (or **Create note with its pictures**) makes a note with the subject, sender, date and text, linked back to the message.
+- More → **Archive to Alondra1 Cloud** copies the message to your cloud Mail Archive (paid plan, up to 25 MB). Your mailbox is not changed. See [Alondra1 account and cloud](#alondra1-account-and-cloud-optional).
+
 **Layout**
 
 - Folders, list, and reader can each dock to any edge (25 combinations). Splitters are resizable and the sizes are remembered.
 - Folders can be shown as toolbar tabs (the default), a side pane, or hidden.
 - Compact or Comfortable density.
 
-*Not yet:* attachments in compose, an attachment panel in the reader, rich HTML display, automatic background sync or push (IDLE), move-to-folder, and flags.
+*Not yet:* attachments in compose, automatic background sync or push (IDLE), move-to-folder, and flags.
 
 ## Calendar (Ctrl+2)
 
 ![Calendar](screenshots/calendar.png)
 
-- A month grid of events from the Microsoft 365 or Google calendars of the accounts you have connected. Days with events are marked, and selecting a day lists its events.
+- A month grid of events from the Microsoft 365 or Google calendars of the accounts you have connected. Days with events are marked.
+- Selecting a day lists its events with their time and account.
+- **Meeting notes** next to each event opens the note linked to that event, or starts one: a note titled "‹event› – meeting notes", linked to the event, with the date and time and Agenda, Notes and Action items (a checklist) sections. The Android app uses the same template.
 - Previous and next month navigation, and an account selector.
 - Local task dates have their own day, week, and month calendar in To-do (below).
 
-*Not yet:* creating or editing events from the window, and week or day views for account events.
+*Not yet:* creating or editing events from the window, week or day views for account events, and showing the cloud events created on Android.
 
 ## To-do (Ctrl+3)
 
@@ -131,7 +139,21 @@ Local rich-text notes, stored in todo.db on this PC. No account or connection is
   - export as a self-contained HTML file or as Markdown with a picture folder;
   - import an HTML file as a new note;
   - import the plain-text notes that earlier versions kept in mail accounts.
-- **Cloud Sync:** with Cloud Sync on, notes, folders and pictures sync with the Android app and other PCs. If the same note changed on two devices, both versions are kept.
+- **Saving:** automatic, a moment after you stop typing, and immediately when you switch notes, leave Notes, close the app or press Ctrl+S.
+- **Cloud Sync:** with Cloud Sync on, notes, folders and pictures sync with the Android app and other PCs.
+- **Sync conflicts:** if the same note changed on two devices before they synced, both versions are kept. A banner above the note (or **Compare** in Settings → Cloud → Sync issues) shows both side by side with the differing lines marked. You can keep the other device's version, keep this PC's version, **Combine both** into the note and tidy it up by hand, or keep both as separate notes.
+
+*Not yet:* merged table cells, text wrapping around pictures, dragging folders into folders, a floating formatting bar, and automatic merging of edits inside the same paragraph.
+
+## Alondra1 account and cloud (optional)
+
+Alondra1 works fully without an account. **Settings → Cloud** adds, after signing in with a 6-digit code sent by email:
+
+- **Plan and devices:** your plan and its state (active, ending, read-only), the signed-in devices, and **Manage account online**. Payment is not available yet; plans are granted on the server.
+- **Cloud Sync** (paid plans): tasks, lists, groups, notes, note folders and note pictures, shared with the Android app and other PCs. Turning it on first backs up your data and merges, so nothing is replaced or deleted. It runs every few minutes, soon after a change, and on **Sync now**; **Pause** stops it. A status button appears in the To-do toolbar. Conflicts keep both versions and are listed under **Sync issues**.
+- **Mail Archive** (paid plans): copies of messages you choose, with search.
+
+When a plan ends, nothing on the PC is deleted; new changes stay on the PC until you renew. Details: [CLOUD.md](CLOUD.md).
 
 ## Contacts (Ctrl+5)
 
@@ -162,12 +184,13 @@ Shown as **Soon**. There is no chat feature yet.
   - Background (picture and adjustments);
   - Accounts (add, edit, switch mode, delete). Deleting an account removes its settings, saved password and sign-in, local mail copy, attachment files, and outbox from this PC after a confirmation. Mail on the server is not changed;
   - Connections (OAuth client ids, and which organizer features to enable: Calendar, To-do, Contacts, Notes);
-  - Data (import or export the configuration, storage use, remove unpinned attachment files).
+  - Data (import or export the configuration, storage use, remove unpinned attachment files);
+  - Cloud (Alondra1 account, plan, Cloud Sync, sync issues, Mail Archive, devices).
 - **Configuration import** shows a preview and lets you **Merge** or **Replace after review**. Exports contain public client ids but never passwords or tokens.
 - **Secrets** are stored with Windows DPAPI for your user account only.
 - **First launch** offers sample data, importing a configuration, or adding an account.
 - **Demo mode** (`--demo`) uses clearly labeled sample data in a temporary folder.
-- **No telemetry, ads, or Alondra1 servers.** Network access goes only to the mail and organizer accounts you add.
+- **No telemetry or ads.** Network access goes only to the mail and organizer accounts you add and, if you sign in to an Alondra1 account, to the Alondra1 cloud.
 
 ## Installation
 
