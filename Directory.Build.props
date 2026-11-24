@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    One source tree, two builds (completion spec v1.1 §8.2): prod (default) and dev. A dev build defines ALONDRA1_DEV:
+    its own data folder, DPAPI entropy, endpoints, discovery keys and window badge (src/Alondra1.Core/BuildEnvironment.cs),
+    and the installer gets its own AppId (installer/alondra1.iss with /DDev).
+      dotnet build Alondra1.slnx -p:Alondra1Environment=dev
+  -->
+  <PropertyGroup>
+    <Alondra1Environment Condition="'$(Alondra1Environment)' == ''">prod</Alondra1Environment>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Alondra1Environment)' == 'dev'">
+    <DefineConstants>$(DefineConstants);ALONDRA1_DEV</DefineConstants>
+  </PropertyGroup>
+  <Target Name="Alondra1CheckEnvironment" BeforeTargets="BeforeBuild">
+    <Error Condition="'$(Alondra1Environment)' != 'prod' and '$(Alondra1Environment)' != 'dev'" Text="Alondra1Environment must be prod or dev, not '$(Alondra1Environment)'." />
+  </Target>
+</Project>

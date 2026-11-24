@@ -42,6 +42,11 @@ Plain .NET with no I/O. Everything here can be unit-tested directly.
 | `Cloud/CloudContracts.cs` | `CloudKinds`, `SyncState`, `SyncStatus`, `SyncIssue` (with the note conflict copy), `ICloudSyncStore`. |
 | `Cloud/CloudSyncEngine.cs` | Cloud Sync: enable and merge, outbox push in batches, pull, bootstrap, conflicts (`KeepBothAsync`), note pictures. |
 | `Cloud/ArchiveClient.cs` | Mail Archive: ingest, search, delete. |
+| `Cloud/Discovery/Ed25519.cs` | Ed25519 signature verification (RFC 8032, verify only; .NET has no Ed25519 API). |
+| `Cloud/Discovery/DiscoveryManifest.cs` | Verification of the signed discovery manifest: the shared rules and error codes. |
+| `Cloud/Discovery/DiscoveryClient.cs` | Primary, mirror, verified cache, bundled list; no redirects, conditional GET. |
+| `Cloud/Discovery/EndpointFailoverHandler.cs` | `EndpointSelector` and the HTTP handler that fails over safely between endpoints. |
+| `BuildEnvironment.cs` | dev or prod, fixed at compile time (`-p:Alondra1Environment=dev`): data folder, endpoints, trusted keys, badge. |
 | `Html/MailHtml.cs` | Builds the reader document: sanitized HTML, CSP, remote-image policy, plain-text rendering with links. |
 | `Mail/ReaderPolicy.cs`, `Mail/MessageCount.cs`, `Mail/SpecialFolders.cs` | When remote images load; the message-count text; special-folder detection. |
 | `Notes/NotesModels.cs` | `Note`, `NoteLink`, `NoteFolder`, `NoteSummary`, `NoteAsset`, `INoteStore`, `NoteChangeSet`. |

@@ -481,7 +481,7 @@ Code: `Providers/OrganizerGateway.cs`, `Core/Organizer/OrganizerModels.cs`, `App
 
 ## 8. Alondra1 account and cloud (`CLOUD`)
 
-Code: `Core/Cloud/CloudApi.cs` (HTTPS client, refresh, `X-Request-ID`), `Core/Cloud/CloudAccount.cs`, `App/Cloud/CloudDialogs.cs` (Settings → Cloud), `App/Cloud/CloudController.cs`. Tests: `CloudSyncTests`, `CloudLiveTests` (opt-in). Docs: [CLOUD.md](CLOUD.md).
+Code: `Core/Cloud/CloudApi.cs` (HTTPS client, refresh, `X-Request-ID`), `Core/Cloud/Discovery/` (signed discovery, Ed25519, failover), `Core/BuildEnvironment.cs`, `Core/Cloud/CloudAccount.cs`, `App/Cloud/CloudDialogs.cs` (Settings → Cloud), `App/Cloud/CloudController.cs`. Tests: `CloudSyncTests`, `DiscoveryTests` (shared fixture cases), `CloudLiveTests` (opt-in). Docs: [CLOUD.md](CLOUD.md).
 
 | ID | Atomic feature | Status | Notes |
 | --- | --- | --- | --- |
@@ -491,8 +491,15 @@ Code: `Core/Cloud/CloudApi.cs` (HTTPS client, refresh, `X-Request-ID`), `Core/Cl
 | CLOUD-PLAN-01 | Show plan and its state (active, grace, read-only) from server entitlements | Done | |
 | CLOUD-PLAN-02 | Manage account online (opens the web account page) | Done | Payment is a placeholder (backend `BILLING_SPEC.md`). |
 | CLOUD-DEV-01 | List signed-in devices | Done | |
-| CLOUD-CFG-01 | `cloud.baseUrl`, `cloud.syncMinutes`; `ALONDRA1_CLOUD_URL` override | Done | HTTPS only, except loopback. |
-| CLOUD-SPACE-01 | Choose among several spaces, accept invitations | Gap | Uses the personal space. |
+| CLOUD-CFG-01 | `cloud.baseUrl`, `cloud.syncMinutes`; `ALONDRA1_CLOUD_URL` override | Done | HTTPS only, except loopback; must be a host of the build's environment. |
+| CLOUD-DISC-01 | Signed discovery manifest (`alondra1.discovery/v1`): Ed25519 over the exact bytes, environment, validity, monotonic version, host allowlist | Done | Passes all 32 shared fixture cases (contract/fixtures/discovery-v1). |
+| CLOUD-DISC-02 | Sources: primary, mirror, verified cache (`discovery-cache.json`, atomic), bundled list until its expiry; no redirects, conditional GET | Done | Only when the cloud is in use; trust list empty until the owner creates the signing keys. |
+| CLOUD-DISC-03 | Failover on transport errors, timeouts, 502/503/504 (Retry-After honoured); never on 401/403/404/429; same body on retry; no refresh replay | Done | `EndpointFailoverHandler`. |
+| CLOUD-DISC-04 | Refresh every 15 min with jitter (checked before each sync) and right after a sync that found the cloud offline | Done | `CloudController.RefreshEndpointsAsync`. |
+| CLOUD-ENV-01 | Dev build (`-p:Alondra1Environment=dev`): own data folder `alondra1-dev`, DPAPI entropy, dev endpoints and keys, DEV badge and title | Done | `BuildEnvironment`. |
+| CLOUD-ENV-02 | A dev build refuses prod hosts and a prod build refuses dev hosts | Done | |
+| CLOUD-SPACE-01 | Choose among several spaces, accept invitations; per-space outbox and cursors | Gap | Uses the personal space (spec v1.1 §8.2, P0 personal / P1 shared). |
+| CLOUD-CAL-01 | Local calendar event store and sync kind `event` | Gap | Spec v1.1 P1; provider events stay separate. |
 
 ## 9. Cloud Sync (`SYNC`)
 
@@ -574,7 +581,10 @@ Code: `installer/` (Inno Setup, `publish.ps1`), `App/App.xaml.cs`, `App/CommandL
 | OPS-CLI-03 | Diagnostics: `--home`, `--demo`, `--perf`, `--open-eml`, `--load-images`, `--trace` | Done | |
 | OPS-LOG-01 | Crash handler writes `logs\crash.txt` | Done | |
 | OPS-CHK-01 | Reinstall check, reader check, snapshot matrix scripts | Done | |
-| OPS-CI-01 | CI: build, test, Markdown link check, gitleaks; release workflow builds the setup and attaches it with a SHA-256 checksum to a draft release on `vX.Y.Z` | Done | |
+| OPS-CI-01 | CI: build, test, Markdown link check, gitleaks; both builds published and checked for the other environment's endpoints | Done | `scripts/check-environment.ps1`. |
+| OPS-REL-01 | Dev setup (Alondra1 Dev, own AppId) on every main push as a workflow artifact | Done | |
+| OPS-REL-02 | Prod setup on `vX.Y.Z`, signed and published only after approval in the `prod` environment; refuses to publish unsigned | Done | Signing identity: `WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PASSWORD` (prod only). |
+| OPS-INST-04 | Dev installer identity: `Alondra1 Dev`, own AppId and folder; installs next to prod | Done | `installer/alondra1.iss /DDev`. |
 
 ---
 

@@ -102,13 +102,44 @@ public sealed partial class CloudController : ObservableObject
         }
     }
 
+    private DateTimeOffset _nextDiscovery = DateTimeOffset.MinValue;
+    private readonly Random _jitter = new();
+
+    /// <summary>
+    /// Refreshes the endpoint list from signed discovery when it is due (15 minutes with jitter) or after a sync that
+    /// could not reach the cloud. Only runs once the user uses the cloud; failures keep the current list.
+    /// </summary>
+    private async Task RefreshEndpointsAsync(bool force)
+    {
+        if (_services.Discovery is null || _services.Endpoints is null || (!force && DateTimeOffset.UtcNow < _nextDiscovery))
+            return;
+        _nextDiscovery = DateTimeOffset.UtcNow + Alondra1.Core.Cloud.Discovery.DiscoveryClient.NextRefresh(_jitter);
+        try
+        {
+            var problems = new List<string>();
+            var set = await _services.Discovery.ResolveAsync(problems, CancellationToken.None);
+            if (set is not null)
+                _services.Endpoints.Update(set.Endpoints);
+            if (problems.Count > 0)
+                Debug.WriteLine("Cloud discovery: " + string.Join("; ", problems));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Debug.WriteLine("Cloud discovery skipped: " + ex.Message);
+        }
+    }
+
     public async Task<SyncStatus?> SyncAsync()
     {
         if (Engine is null)
             return null;
         try
         {
-            return await Engine.SyncNowAsync();
+            await RefreshEndpointsAsync(force: false);
+            var status = await Engine.SyncNowAsync();
+            if (status?.State == SyncState.Offline)
+                await RefreshEndpointsAsync(force: true); // sustained gateway failure: maybe the endpoints moved
+            return status;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

@@ -1739,6 +1739,9 @@ public sealed class AppServices
     public Alondra1.Core.Cloud.CloudApi? CloudApi { get; init; }
     public Alondra1.Core.Cloud.CloudAccount? CloudAccount { get; init; }
     public Alondra1.Core.Cloud.CloudSyncEngine? CloudSync { get; init; }
+    /// <summary>Cloud discovery (null when the user set a fixed server address); refreshed by the cloud controller.</summary>
+    public Alondra1.Core.Cloud.Discovery.DiscoveryClient? Discovery { get; init; }
+    public Alondra1.Core.Cloud.Discovery.EndpointSelector? Endpoints { get; init; }
     public Alondra1.Core.Notes.NotesBoard? NotesBoard { get; init; }
     public Alondra1.Core.Notes.NoteAssets? NoteAssets { get; init; }
     public string? TaskStoreError { get; init; }
@@ -1772,7 +1775,7 @@ public sealed class AppServices
 
     public static async Task<AppServices> CreateAsync(string? home = null)
     {
-        var root = home ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "alondra1");
+        var root = home ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Alondra1.Core.BuildEnvironment.DataFolder);
         Directory.CreateDirectory(root);
         var configStore = new ConfigFileStore(root);
         var config = configStore.Load();
@@ -1787,9 +1790,11 @@ public sealed class AppServices
         var sync = new SyncCoordinator(mail, store, cache, secrets, oauth, new Alondra1.Core.Ports.SystemClock(), new NullConflicts());
         var (taskStore, taskFiles, board, taskError) = await OpenTasksAsync(root).ConfigureAwait(false);
         var (notesBoard, noteAssets) = await OpenNotesAsync(config, taskStore, root).ConfigureAwait(false);
-        var (cloudApi, cloudAccount, cloudSync) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, root);
+        var (cloudApi, cloudAccount, cloudSync, discovery, endpoints) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, root);
         return new AppServices
         {
+            Discovery = discovery,
+            Endpoints = endpoints,
             CloudApi = cloudApi,
             CloudAccount = cloudAccount,
             CloudSync = cloudSync,
@@ -1817,15 +1822,46 @@ public sealed class AppServices
     /// The optional Alondra1 cloud. Nothing here talks to the network until the user signs in; a bad address only
     /// disables the cloud features. Before the first sync, todo.db is copied to backups	odo-before-cloud-*.db.
     /// </summary>
-    private static (Alondra1.Core.Cloud.CloudApi?, Alondra1.Core.Cloud.CloudAccount?, Alondra1.Core.Cloud.CloudSyncEngine?) CreateCloud(
+    private static (Alondra1.Core.Cloud.CloudApi?, Alondra1.Core.Cloud.CloudAccount?, Alondra1.Core.Cloud.CloudSyncEngine?,
+        Alondra1.Core.Cloud.Discovery.DiscoveryClient?, Alondra1.Core.Cloud.Discovery.EndpointSelector?) CreateCloud(
         AppConfig config, DpapiSecretStore secrets, SqliteTaskStore? taskStore, Alondra1.Core.Tasks.TaskBoard? board,
         Alondra1.Core.Notes.NotesBoard? notes, Alondra1.Core.Notes.NoteAssets? assets, string root)
     {
         if (taskStore is null || board is null)
-            return (null, null, null);
+            return (null, null, null, null, null);
         try
         {
-            var api = new Alondra1.Core.Cloud.CloudApi(config.Cloud.EffectiveUri(), new Alondra1.Core.Cloud.SecretStoreTokens(secrets));
+            // Default address: endpoints come from signed discovery (cache or bundled list until the first refresh), with
+            // failover between them. A fixed address (Settings or ALONDRA1_CLOUD_URL) must belong to this build's
+            // environment: a dev build never talks to prod and the reverse.
+            Alondra1.Core.Cloud.Discovery.DiscoveryClient? discovery = null;
+            Alondra1.Core.Cloud.Discovery.EndpointSelector? endpoints = null;
+            Alondra1.Core.Cloud.CloudApi api;
+            if (config.Cloud.UsesDiscovery())
+            {
+                discovery = new Alondra1.Core.Cloud.Discovery.DiscoveryClient(Alondra1.Core.Cloud.Discovery.DiscoveryClient.DefaultHandler(),
+                    Alondra1.Core.BuildEnvironment.Name, Alondra1.Core.BuildEnvironment.TrustedKeys, Alondra1.Core.BuildEnvironment.DiscoveryUrls,
+                    Path.Combine(root, "discovery-cache.json"), Alondra1.Core.BuildEnvironment.BootstrapEndpoints, Alondra1.Core.BuildEnvironment.BootstrapValidUntil);
+                var initial = discovery.Offline();
+                if (initial is null)
+                {
+                    Debug.WriteLine("Alondra1 cloud disabled: no valid endpoint list (bundled list expired and no verified manifest cached)");
+                    return (null, null, null, null, null);
+                }
+                endpoints = new Alondra1.Core.Cloud.Discovery.EndpointSelector(initial.Endpoints);
+                var handler = new Alondra1.Core.Cloud.Discovery.EndpointFailoverHandler(endpoints, new System.Net.Http.SocketsHttpHandler { AllowAutoRedirect = false });
+                api = new Alondra1.Core.Cloud.CloudApi(initial.Endpoints[0].Url, new Alondra1.Core.Cloud.SecretStoreTokens(secrets), handler);
+            }
+            else
+            {
+                var address = config.Cloud.EffectiveUri();
+                if (!Alondra1.Core.BuildEnvironment.AllowsCloudAddress(address))
+                {
+                    Debug.WriteLine($"Alondra1 cloud disabled: {address.Host} is not an address of the {Alondra1.Core.BuildEnvironment.Name} environment");
+                    return (null, null, null, null, null);
+                }
+                api = new Alondra1.Core.Cloud.CloudApi(address, new Alondra1.Core.Cloud.SecretStoreTokens(secrets));
+            }
             var account = new Alondra1.Core.Cloud.CloudAccount(api, taskStore);
             var engine = new Alondra1.Core.Cloud.CloudSyncEngine(board, taskStore, api, new Alondra1.Core.Ports.SystemClock(), async () =>
             {
@@ -1833,12 +1869,12 @@ public sealed class AppServices
                 Directory.CreateDirectory(folder);
                 await taskStore.BackupToAsync(Path.Combine(folder, $"todo-before-cloud-{DateTime.Now:yyyyMMdd-HHmmss}.db")).ConfigureAwait(true);
             }, notes, assets);
-            return (api, account, engine);
+            return (api, account, engine, discovery, endpoints);
         }
         catch (Exception ex) when (ex is ArgumentException or UriFormatException)
         {
             Debug.WriteLine("Alondra1 cloud disabled: " + ex.Message);
-            return (null, null, null);
+            return (null, null, null, null, null);
         }
     }
 

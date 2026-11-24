@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Alondra1.Core\Alondra1.Core.csproj" />
@@ -38,7 +38,8 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>Alondra1</AssemblyName>
-    <Product>Alondra1</Product>
+    <Product Condition="'$(Alondra1Environment)' == 'dev'">Alondra1 Dev</Product>
+    <Product Condition="'$(Alondra1Environment)' != 'dev'">Alondra1</Product>
     <Version>1.3.0</Version>
     <Company>Alondra1</Company>
     <Description>Alondra1</Description>

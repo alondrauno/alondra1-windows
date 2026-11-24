@@ -8,7 +8,8 @@ namespace Alondra1.Persistence;
 
 public sealed class DpapiSecretStore : ISecretStore
 {
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("alondra1-v1");
+    // A dev build uses different entropy, so it can never read the prod app's secrets of the same Windows user.
+    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes(Alondra1.Core.BuildEnvironment.IsDev ? "alondra1-dev-v1" : "alondra1-v1");
     private readonly string _directory;
 
     public DpapiSecretStore(string directory)

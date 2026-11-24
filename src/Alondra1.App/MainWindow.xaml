@@ -692,6 +692,12 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
       </Grid>
+      <!-- Dev builds (BuildEnvironment.IsDev) carry a visible badge so test data is never mistaken for real data. -->
+      <Border x:Name="DevBadge" Grid.RowSpan="5" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Top"
+              Margin="0,4,0,0" Padding="8,1" CornerRadius="6" Background="#C2410C" IsHitTestVisible="False"
+              AutomationProperties.Name="Development build">
+        <TextBlock Text="DEV" Foreground="White" FontWeight="SemiBold" FontSize="11"/>
+      </Border>
     </Grid>
   </Border>
 </Window>

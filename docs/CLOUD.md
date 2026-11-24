@@ -41,7 +41,20 @@ Everything is in **Settings → Cloud**. When Cloud Sync is on, a status button 
 
 ## Configuration
 
-`config.json` → `cloud`: `baseUrl` (default `https://api.alondra1.com`) and `syncMinutes` (default 5). For development, the environment variable `ALONDRA1_CLOUD_URL` overrides the address, for example `http://127.0.0.1:8080`.
+`config.json` → `cloud`: `baseUrl` (default: the API of this build's environment, which means "use signed discovery") and `syncMinutes` (default 5). For development, the environment variable `ALONDRA1_CLOUD_URL` overrides the address, for example `http://127.0.0.1:8080`. A fixed address must belong to the build's environment (or be loopback): a dev build never talks to prod and the reverse.
+
+## Discovery and failover
+
+With the default address the app learns its endpoints from the signed discovery manifest of its environment (alondra1-infra `discovery/README.md`; `Core/Cloud/Discovery`):
+
+- **Verification:** Ed25519 over the exact bytes with a key the build trusts for its environment (`BuildEnvironment.TrustedKeys`), then environment, validity, monotonic version (no rollback) and the host allowlist. `DiscoveryTests` runs the 32 shared fixture cases in `contract/fixtures/discovery-v1`.
+- **Sources:** primary (`config.<env>`), mirror (`config2.<env>`), the last verified manifest (`discovery-cache.json` in the data folder, verified again on every use), then the bundled list until `BuildEnvironment.BootstrapValidUntil`. No redirects; conditional GET. Nothing is fetched until the cloud is in use.
+- **Failover** (`EndpointFailoverHandler`): another endpoint only after a transport error, a timeout or 502/503/504 (pausing that endpoint for `Retry-After`); 401/403/404/429 are never retried elsewhere; the same request body (and mutation ids) is sent again; a token refresh is never replayed on another endpoint after a transport failure.
+- The trust lists are empty until the owner creates the signing keys; until then the bundled list is used.
+
+## Dev and prod builds
+
+`dotnet build -p:Alondra1Environment=dev` (or `./installer/publish.ps1 -Environment dev`) builds **Alondra1 Dev**: data in `%LOCALAPPDATA%\alondra1-dev`, its own DPAPI entropy, dev endpoints and discovery keys, a DEV badge, and a setup with its own AppId that installs next to prod. `scripts/check-environment.ps1` fails a build that contains the other environment's endpoints (run by CI and the release workflow).
 
 ## Tests
 

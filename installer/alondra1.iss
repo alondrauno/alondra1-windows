@@ -1,10 +1,21 @@
 ; Alondra1 setup. Compile with Inno Setup 6 (ISCC.exe).
 
-#define MyAppName "Alondra1"
+; Two builds from one script (completion spec v1.1 §8.2): prod (default) and dev (ISCC /DDev). The dev setup has its own
+; AppId, name, folder and output file, so it installs next to prod and never upgrades or removes it.
 #define MyAppVersion "1.3.0"
 #define MyAppExeName "Alondra1.exe"
-; Keep this id: it is what lets a newer setup upgrade an existing Alondra1 installation in place.
-#define MyAppId "{{8F4C2A91-6B1E-4D77-9C3A-1E5B7A0D4F22}"
+#ifdef Dev
+  #define MyAppName "Alondra1 Dev"
+  #define MyAppId "{{3C7D9B52-0E61-4A1F-B8C4-6D2E9F1A7B30}"
+  #define MyOutput "Alondra1-dev-setup"
+  #define MySource "..\artifacts\win-x64-dev"
+#else
+  #define MyAppName "Alondra1"
+  ; Keep this id: it is what lets a newer setup upgrade an existing Alondra1 installation in place.
+  #define MyAppId "{{8F4C2A91-6B1E-4D77-9C3A-1E5B7A0D4F22}"
+  #define MyOutput "Alondra1-setup"
+  #define MySource "..\artifacts\win-x64"
+#endif
 
 [Setup]
 AppId={#MyAppId}
@@ -16,13 +27,13 @@ VersionInfoVersion=1.3.0.0
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion=1.3.0.0
 VersionInfoDescription=Alondra1 setup
-DefaultDirName={localappdata}\Programs\Alondra1
-DefaultGroupName=Alondra1
+DefaultDirName={localappdata}\Programs\{#MyAppName}
+DefaultGroupName={#MyAppName}
 DisableWelcomePage=no
 DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=..\artifacts
-OutputBaseFilename=Alondra1-setup
+OutputBaseFilename={#MyOutput}
 SetupLogging=no
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -34,7 +45,7 @@ WizardImageAlphaFormat=none
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayName=Alondra1
+UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=..\src\Alondra1.App\Assets\alondra1.ico
 CloseApplications=yes
@@ -49,11 +60,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "..\artifacts\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml"
+Source: "{#MySource}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.xml"
 
 [Icons]
-Name: "{autoprograms}\Alondra1"; Filename: "{app}\{#MyAppExeName}"; Comment: "Alondra1"
-Name: "{autodesktop}\Alondra1"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Comment: "{#MyAppName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Alondra1"; Flags: nowait postinstall skipifsilent

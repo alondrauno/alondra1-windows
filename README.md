@@ -47,6 +47,7 @@ dotnet build Alondra1.slnx                          # build
 dotnet test Alondra1.slnx                           # run the tests
 dotnet run --project src/Alondra1.App -- --demo     # try it with sample data
 ./installer/publish.ps1                             # self-contained build + artifacts/Alondra1-setup.exe
+./installer/publish.ps1 -Environment dev            # Alondra1 Dev: own data folder, dev endpoints, DEV badge
 ```
 
 Optional test settings (scale test, live mailboxes, fixture updates) are listed in [.env.example](.env.example).
@@ -86,8 +87,10 @@ Optional test settings (scale test, live mailboxes, fixture updates) are listed 
 
 | Workflow | When | What |
 | --- | --- | --- |
-| [`ci`](.github/workflows/ci.yml) | push to `main`, pull requests | Restore, build, and test on `windows-latest` (.NET 10); Markdown link check; gitleaks. |
-| [`release`](.github/workflows/release.yml) | tag `vX.Y.Z` | Runs `ci`, checks the tag against `MyAppVersion`, builds the self-contained setup with Inno Setup, and attaches it with a SHA-256 checksum to a draft GitHub release. |
+| [`ci`](.github/workflows/ci.yml) | push to `main`, pull requests | Restore, build, and test on `windows-latest` (.NET 10); both builds published and checked for the other environment's endpoints; Markdown link check; gitleaks. |
+| [`release`](.github/workflows/release.yml) | push to `main`, tag `vX.Y.Z` | Every main push: the dev setup (Alondra1 Dev) as a workflow artifact. A tag: runs `ci`, checks the tag against `MyAppVersion`, builds the prod setup, then waits for approval in the `prod` environment; only then is it signed, verified and published with its SHA-256 checksum. |
+
+Repository settings: environment `prod` with required reviewers and the secrets `WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PASSWORD`. All third-party actions are pinned to commit SHAs.
 
 ## Related repositories
 

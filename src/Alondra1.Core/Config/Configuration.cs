@@ -76,10 +76,17 @@ public sealed class NotesSettings
 /// <summary>Optional Alondra1 cloud (account, Cloud Sync, Mail Archive). Never contains tokens; those are kept with DPAPI.</summary>
 public sealed class CloudSettings
 {
-    public const string Production = "https://api.alondra1.com";
+    /// <summary>The API origin of this build's environment (BuildEnvironment); never a host of the other environment.</summary>
+    public static string Production => BuildEnvironment.ApiOrigin;
 
-    /// <summary>API address. HTTPS only; plain HTTP is accepted for a development server on this PC.</summary>
+    /// <summary>API address. HTTPS only; plain HTTP is accepted for a development server on this PC. The default means
+    /// "use signed discovery" (endpoints and failover from the environment's manifest).</summary>
     public string BaseUrl { get; set; } = Production;
+
+    /// <summary>Discovery is used unless a fixed address is set here or in ALONDRA1_CLOUD_URL.</summary>
+    public bool UsesDiscovery() =>
+        string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ALONDRA1_CLOUD_URL")) &&
+        (string.IsNullOrWhiteSpace(BaseUrl) || string.Equals(BaseUrl.TrimEnd('/'), Production, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Minutes between background syncs while Cloud Sync is on.</summary>
     public int SyncMinutes { get; set; } = 5;

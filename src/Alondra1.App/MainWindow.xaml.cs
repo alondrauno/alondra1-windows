@@ -26,6 +26,9 @@ public partial class MainWindow : Window
     public MainWindow(MainViewModel model)
     {
         InitializeComponent();
+        Title = Alondra1.Core.BuildEnvironment.DisplayName;
+        if (Alondra1.Core.BuildEnvironment.IsDev)
+            DevBadge.Visibility = Visibility.Visible;
         _model = model;
         DataContext = model;
         ShellWindow.Attach(this);
@@ -230,7 +233,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "alondra1", "logs");
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Alondra1.Core.BuildEnvironment.DataFolder, "logs");
             Directory.CreateDirectory(directory);
             File.AppendAllText(Path.Combine(directory, "launch.log"), $"{DateTimeOffset.Now:O} launch {App.Services.Launch.ElapsedMilliseconds} ms{Environment.NewLine}");
         }
@@ -287,7 +290,7 @@ public partial class MainWindow : Window
         System.Windows.Media.CompositionTarget.Rendering -= handler;
         var working = Process.GetCurrentProcess().WorkingSet64;
         var report = $"commit {commitMs} ms; search {found.Count} hits in {searchMs} ms; scroll frames {frames}; working set {working / (1024 * 1024)} MB";
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "alondra1", "perf.txt");
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Alondra1.Core.BuildEnvironment.DataFolder, "perf.txt");
         File.WriteAllText(path, report);
         if (App.Arguments.Contains("--exit"))
             Close();

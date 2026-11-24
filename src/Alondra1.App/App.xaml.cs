@@ -19,7 +19,7 @@ public partial class App : Application
         {
             try
             {
-                var log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "alondra1", "logs");
+                var log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Alondra1.Core.BuildEnvironment.DataFolder, "logs");
                 Directory.CreateDirectory(log);
                 File.WriteAllText(Path.Combine(log, "crash.txt"), args.Exception.ToString());
             }
