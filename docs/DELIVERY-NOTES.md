@@ -15,7 +15,7 @@ This is the release history, with what was verified for each release and what wa
 
 - The Windows app moved from `apps/windows` in the `alondra1` monorepo to the root of this repository. The Inno Setup `AppId`, the `%LOCALAPPDATA%londra1` data folder, and all project names are unchanged.
 - The task schema and golden fixture moved from `packages/` to `contract/` (`ContractSchemaTests` now looks for `contract/schemas`). The backend keeps a copy and checks it against this one.
-- The cloud backend, its decisions, and its runbooks are now in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend). Older entries below still use the monorepo paths.
+- The cloud backend, its decisions, and its runbooks are now in [alondra1-backend](https://github.com/alondrauno/alondra1-backend). Older entries below still use the monorepo paths.
 - CI: the `ci` workflow builds and tests on `windows-latest`; the `release` workflow builds the setup on `v*` tags.
 
 ## Unreleased: client Milestones 2–4, rich reader, responsive layout, polish (2026-11-23)
@@ -72,9 +72,9 @@ Client spec (`.import/ALONDRA1_CLIENT_SPEC.md`) §3 and §8.1.
 
 ## Unreleased: cloud backend, Milestone F: operational readiness (2026-11-22)
 
-Everything stays on Docker Compose, as the spec requires; host provisioning, DNS, and the firewall remain the operator's job ([production runbook](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/production.md)).
+Everything stays on Docker Compose, as the spec requires; host provisioning, DNS, and the firewall remain the operator's job ([production runbook](https://github.com/alondrauno/alondra1-backend/blob/main/docs/runbooks/production.md)).
 
-- **Retention job:** `internal/maintenance` enforces [ADR 0003](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0003-retention.md).
+- **Retention job:** `internal/maintenance` enforces [ADR 0003](https://github.com/alondrauno/alondra1-backend/blob/main/docs/decisions/0003-retention.md).
   - It purges the change log after 90 days, raising each space's cursor floor so stale clients get `410` and bootstrap again.
   - It also purges receipts after 90 days, sign-in challenges after 1 day, sessions 7 days after expiry, space content 30 days after deletion (the tenant row stays as a tombstone), a removed member's data 30 days after removal unless they rejoin, closed invitations after 30 days, and audit entries after 1 year.
   - It runs every 6 hours in the API, or once with `api maintenance`. An advisory lock lets only one instance run at a time. Migration `0005_maintenance`.
@@ -92,7 +92,7 @@ Everything stays on Docker Compose, as the spec requires; host provisioning, DNS
   - It runs every check, builds versioned images, and publishes them with provenance and an SBOM.
   - Trivy fails the release on fixable high or critical vulnerabilities, and cosign signs the images keylessly by digest.
   - Production then waits for a human approval and shows the digests to deploy.
-  - Runbooks: [production](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/production.md), [backups and restores](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/backup-restore.md), [monitoring](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/monitoring.md), [release](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/runbooks/release.md).
+  - Runbooks: [production](https://github.com/alondrauno/alondra1-backend/blob/main/docs/runbooks/production.md), [backups and restores](https://github.com/alondrauno/alondra1-backend/blob/main/docs/runbooks/backup-restore.md), [monitoring](https://github.com/alondrauno/alondra1-backend/blob/main/docs/runbooks/monitoring.md), [release](https://github.com/alondrauno/alondra1-backend/blob/main/docs/runbooks/release.md).
 - **CI additions:**
   - Compose validation with every profile, checking that the database and metrics ports are not published and that the API binds to localhost.
   - Caddyfile validation, `promtool` checks of the Prometheus config and alert rules, and `shellcheck` of the backup scripts.
@@ -116,7 +116,7 @@ Everything stays on Docker Compose, as the spec requires; host provisioning, DNS
 - **Push:** `POST /v1/sync/push` takes up to 100 mutations, each `applied`, `conflict` (with the server copy), or `rejected`.
   - Applied mutations are recorded per device and mutation id, so a retried batch never applies twice.
   - An edit of a task deleted elsewhere is a visible conflict.
-- **Reference client:** `internal/cloudsync/client` is an offline-first client: local copy, outbox, conflict queue, bootstrap replay, and purge on lost access. [ADR 0005](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0005-sync-protocol.md) states the rules every client must follow.
+- **Reference client:** `internal/cloudsync/client` is an offline-first client: local copy, outbox, conflict queue, bootstrap replay, and purge on lost access. [ADR 0005](https://github.com/alondrauno/alondra1-backend/blob/main/docs/decisions/0005-sync-protocol.md) states the rules every client must follow.
 - **Found by the multi-device tests:** coalescing two offline edits with merge-patch application dropped a `null` ("remove from My Day"). Clients must compose patches; `tasks.ComposePatch` does this, with a unit test that composed equals sequential.
 - **Verified:**
   - Go unit tests and vet are clean.
@@ -172,7 +172,7 @@ Found with two real mailboxes on a provider that uses Implicit TLS everywhere (I
   - Reminder delivery state and group collapse stay on each device.
 - **Settings:** allowlisted namespaces with strict schemas: `appearance` and `todo.preferences` per user, `space.profile` per space.
 - **Export:** `GET /v1/data/export` returns everything of the caller, with tasks as `alondra1-todo` documents.
-- **Decisions:** [ADR 0004](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0004-cloud-task-storage.md); migration `0003_tasks`.
+- **Decisions:** [ADR 0004](https://github.com/alondrauno/alondra1-backend/blob/main/docs/decisions/0004-cloud-task-storage.md); migration `0003_tasks`.
 - **Routing:** a JSON 405 now comes from one catch-all that checks other methods, because per-path fallbacks conflicted with wildcard routes.
 - **Verified:**
   - Go unit tests pass: validation against the Windows golden fixture plus negative cases, merge patch, and the settings allowlists.
@@ -203,7 +203,7 @@ Found with two real mailboxes on a provider that uses Implicit TLS everywhere (I
   - Removing members, leaving, and ownership transfer. A space with members always keeps an owner, also under concurrent requests.
   - Device list and revocation.
   - Account deletion: refused while you are the only owner of a space that still has other members. Otherwise the address is pseudonymized so it can sign up again.
-  - Retention policy: [ADR 0003](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0003-retention.md). Migration `0002_tenancy`. See [backend/README.md](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/API.md#spaces-spec-5).
+  - Retention policy: [ADR 0003](https://github.com/alondrauno/alondra1-backend/blob/main/docs/decisions/0003-retention.md). Migration `0002_tenancy`. See [backend/README.md](https://github.com/alondrauno/alondra1-backend/blob/main/docs/API.md#spaces-spec-5).
 - **Verified:**
   - `go vet` is clean and the unit tests pass, including the role and permission matrix, the SSL-mode handling, and the absence of path tokens in logs.
   - An end-to-end HTTP test with several users on a real PostgreSQL 17 covers:
@@ -221,15 +221,15 @@ Found with two real mailboxes on a provider that uses Implicit TLS everywhere (I
 
 ## Unreleased: monorepo and cloud backend, Milestones A and B (2026-11-21)
 
-Work toward the optional cloud in [BACKEND_SPEC.md](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/BACKEND_SPEC.md). The Windows app does not use the backend yet, and nothing here is production-ready.
+Work toward the optional cloud in [BACKEND_SPEC.md](https://github.com/alondrauno/alondra1-backend/blob/main/docs/BACKEND_SPEC.md). The Windows app does not use the backend yet, and nothing here is production-ready.
 
 - **Monorepo (Milestone A):**
   - The Windows app moved to `apps/windows` with history-preserving moves. Its paths, the Inno Setup `AppId`, and the `%LOCALAPPDATA%\alondra1` data folder are unchanged.
-  - Decisions: [0001 opt-in cloud](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0001-opt-in-cloud.md) and [0002 local/cloud task boundary](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/decisions/0002-local-cloud-task-boundary.md).
+  - Decisions: [0001 opt-in cloud](https://github.com/alondrauno/alondra1-backend/blob/main/docs/decisions/0001-opt-in-cloud.md) and [0002 local/cloud task boundary](https://github.com/alondrauno/alondra1-backend/blob/main/docs/decisions/0002-local-cloud-task-boundary.md).
   - Shared contract: `packages/api-contract/schemas/todo-v1.schema.json`, generated from `TodoModels.cs`, plus a golden fixture written by the Windows serializer. `TodoTask.SubtaskProgress` is no longer written to JSON exports. It was a derived value that serialized as an empty object and was ignored on import.
   - `compose.yaml` (API + PostgreSQL 17 on an internal network, no database port, localhost-only API, optional mailpit), `.env.example`, `secrets/` (ignored), `scripts/new-dev-secrets.ps1`, and CI workflows.
   - Android and iOS are placeholders only.
-- **Backend (Milestone B):** Go API with secret-file configuration, database retry, forward-only migrations, SMTP delivery, and email one-time-code sign-in with rotating refresh tokens and reuse detection. See [backend/README.md](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/API.md).
+- **Backend (Milestone B):** Go API with secret-file configuration, database retry, forward-only migrations, SMTP delivery, and email one-time-code sign-in with rotating refresh tokens and reuse detection. See [backend/README.md](https://github.com/alondrauno/alondra1-backend/blob/main/docs/API.md).
 - **Verified:**
   - Windows, from `apps/windows`: 119 passed, 1 skipped (the opt-in 10 GB mailbox test). This includes 16 new contract tests.
   - Backend: `go vet` clean. Unit tests pass for configuration, sign-in rules (expiry, attempts, replay, supersession, cooldown and hourly, per-IP and global limits, rotation and reuse, logout), the HTTP error contract, log redaction, OpenAPI routing, and SMTP against an in-process server.

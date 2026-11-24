@@ -1,6 +1,6 @@
 # Task contract
 
-The contract shared with the Alondra1 cloud and the other clients. [alondra1-backend `contract/`](https://github.com/nikita4sea/alondra1-backend/tree/main/contract) is the single authoritative release (completion spec v1.1 §7); this directory is its mirror, checked by the backend's `contract-sync` workflow. The Windows task model stays normative for task semantics: its serializer produces the golden fixture, which is published through the backend.
+The contract shared with the Alondra1 cloud and the other clients. [alondra1-backend `contract/`](https://github.com/alondrauno/alondra1-backend/tree/main/contract) is the single authoritative release (completion spec v1.1 §7); this directory is its mirror, checked by the backend's `contract-sync` workflow. The Windows task model stays normative for task semantics: its serializer produces the golden fixture, which is published through the backend.
 
 | Path | Contents |
 | --- | --- |

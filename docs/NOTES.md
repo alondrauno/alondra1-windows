@@ -1,6 +1,6 @@
 # Notes on Windows
 
-Local-first rich-text notes (Notes spec). The editor is the shared [notes editor](https://github.com/nikita4sea/alondra1-backend/tree/main/contract/notes-editor) (alondra1-backend `contract/notes-editor`) bundle, hosted in WebView2. The Android app hosts the same bundle, so documents are identical on both.
+Local-first rich-text notes (Notes spec). The editor is the shared [notes editor](https://github.com/alondrauno/alondra1-backend/tree/main/contract/notes-editor) (alondra1-backend `contract/notes-editor`) bundle, hosted in WebView2. The Android app hosts the same bundle, so documents are identical on both.
 
 ## Where things are
 

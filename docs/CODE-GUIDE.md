@@ -29,7 +29,7 @@ dotnet run --project src/Alondra1.App -- --demo
 | `contract/` | Task JSON Schema and golden fixtures, mirrored in alondra1-backend; see [contract/README.md](../contract/README.md). |
 | `scripts/` | `reinstall-local.ps1`, `check-reader.ps1`, `snapshot-matrix.ps1` ([runbook](runbooks/windows-reinstall-check.md)). |
 
-The cloud API, the OpenAPI contract, and the Docker Compose runtime are in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend).
+The cloud API, the OpenAPI contract, and the Docker Compose runtime are in [alondra1-backend](https://github.com/alondrauno/alondra1-backend).
 
 ## Alondra1.Core
 

@@ -5,7 +5,7 @@
 A complete, structured list of what the Windows app does: high-level **capabilities**, the **features** inside each, and every **atomic feature** (one behavior you can test). Each feature names the code that implements it, the tests that cover it and the document that explains it. The goal is to let you plan and add a feature **without scanning the code**: find the closest existing feature, follow its code pointers, and use the [recipes](#recipes-adding-a-feature) at the end.
 
 - User-facing description: [FEATURES.md](FEATURES.md). Design and rules: [ARCHITECTURE.md](ARCHITECTURE.md), [GUIDELINES.md](GUIDELINES.md).
-- The same capabilities on Android and in the backend: [alondra1-android FEATURE-MAP](https://github.com/nikita4sea/alondra1-android/blob/main/docs/FEATURE-MAP.md) and [alondra1-backend FEATURE-MAP](https://github.com/nikita4sea/alondra1-backend/blob/main/docs/FEATURE-MAP.md) (which also has the cross-platform parity table).
+- The same capabilities on Android and in the backend: [alondra1-android FEATURE-MAP](https://github.com/alondrauno/alondra1-android/blob/main/docs/FEATURE-MAP.md) and [alondra1-backend FEATURE-MAP](https://github.com/alondrauno/alondra1-backend/blob/main/docs/FEATURE-MAP.md) (which also has the cross-platform parity table).
 - Keep this file current: a change that adds, removes or changes a user-visible behavior updates its row here in the same commit.
 
 **Status:** **Done**: implemented and tested. **Partial**: works with a stated limit. **Gap**: known missing piece (not hidden; listed so it can be planned).

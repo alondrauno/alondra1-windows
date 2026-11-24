@@ -2,7 +2,7 @@
   <img src="docs/images/alondra1-banner.png" alt="Alondra1: local-first mail, calendar, and to-do for Windows" width="880">
 </p>
 
-[![ci](https://github.com/nikita4sea/alondra1-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/nikita4sea/alondra1-windows/actions/workflows/ci.yml)
+[![ci](https://github.com/alondrauno/alondra1-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/alondrauno/alondra1-windows/actions/workflows/ci.yml)
 
 **Alondra1** is a calm, lightweight Windows app for your mail, calendar, tasks, notes, and contacts.
 
@@ -32,7 +32,7 @@ See [docs/FEATURES.md](docs/FEATURES.md) for the complete list, and [docs/FEATUR
 
 ## Install
 
-Download `Alondra1-setup.exe` from [Releases](https://github.com/nikita4sea/alondra1-windows/releases), or build it yourself as shown below. It installs to `%LOCALAPPDATA%\Programs\Alondra1` and adds a Start menu shortcut and an entry in Settings → Apps.
+Download `Alondra1-setup.exe` from [Releases](https://github.com/alondrauno/alondra1-windows/releases), or build it yourself as shown below. It installs to `%LOCALAPPDATA%\Programs\Alondra1` and adds a Start menu shortcut and an entry in Settings → Apps.
 
 Your data lives in `%LOCALAPPDATA%\alondra1`. Installing a newer version or uninstalling keeps it.
 
@@ -94,7 +94,7 @@ Repository settings: environment `prod` with required reviewers and the secrets 
 
 ## Related repositories
 
-The optional cloud (Go API, OpenAPI contract, the shared notes editor, decisions, runbooks) is in [alondra1-backend](https://github.com/nikita4sea/alondra1-backend); the Windows app uses it only after the user signs in. Other clients: [alondra1-android](https://github.com/nikita4sea/alondra1-android), [alondra1-iphone](https://github.com/nikita4sea/alondra1-iphone), [alondra1-mac](https://github.com/nikita4sea/alondra1-mac) (not started). Website: [alondra1-www](https://github.com/nikita4sea/alondra1-www).
+The optional cloud (Go API, OpenAPI contract, the shared notes editor, decisions, runbooks) is in [alondra1-backend](https://github.com/alondrauno/alondra1-backend); the Windows app uses it only after the user signs in. Other clients: [alondra1-android](https://github.com/alondrauno/alondra1-android), [alondra1-iphone](https://github.com/alondrauno/alondra1-iphone), [alondra1-mac](https://github.com/alondrauno/alondra1-mac) (not started). Website: [alondra1-www](https://github.com/alondrauno/alondra1-www).
 
 ## Logo
 
