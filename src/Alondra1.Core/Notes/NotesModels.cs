@@ -5,7 +5,7 @@ namespace Alondra1.Core.Notes;
 
 /// <summary>
 /// A local note (alondra1-backend contract/schemas/notes-v1.schema.json). The document is the shared rich-text JSON
-/// (note-document-v1, edited by alondra1-notes-editor); Body is its plain text, for search, previews and older clients.
+/// (note-document-v1, edited by the shared notes editor in alondra1-backend contract/notes-editor); Body is its plain text, for search, previews and older clients.
 /// </summary>
 public sealed class Note
 {

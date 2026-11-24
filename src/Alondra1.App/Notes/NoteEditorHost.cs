@@ -11,10 +11,10 @@ using Microsoft.Web.WebView2.Wpf;
 namespace Alondra1.App.Notes;
 
 /// <summary>
-/// Hosts the Alondra1 Notes editor (Assets\NotesEditor, built from alondra1-notes-editor) in WebView2. The page is
+/// Hosts the Alondra1 Notes editor (Assets\NotesEditor, built from alondra1-backend contract/notes-editor) in WebView2. The page is
 /// served from the app folder under https://editor.alondra1.invalid and pictures from the local notes-assets folder
 /// under https://assets.alondra1.invalid; nothing is loaded from the internet and no navigation is allowed. Messages
-/// in both directions are JSON (see alondra1-notes-editor docs/HOST-BRIDGE.md).
+/// in both directions are JSON (see alondra1-backend contract/notes-editor/docs/HOST-BRIDGE.md).
 /// </summary>
 public sealed class NoteEditorHost : ContentControl
 {

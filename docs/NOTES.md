@@ -1,6 +1,6 @@
 # Notes on Windows
 
-Local-first rich-text notes (Notes spec). The editor is the shared [alondra1-notes-editor](../../alondra1-notes-editor) bundle, hosted in WebView2. The Android app hosts the same bundle, so documents are identical on both.
+Local-first rich-text notes (Notes spec). The editor is the shared [notes editor](https://github.com/nikita4sea/alondra1-backend/tree/main/contract/notes-editor) (alondra1-backend `contract/notes-editor`) bundle, hosted in WebView2. The Android app hosts the same bundle, so documents are identical on both.
 
 ## Where things are
 
@@ -11,7 +11,7 @@ Local-first rich-text notes (Notes spec). The editor is the shared [alondra1-not
 | Storage in todo.db (schema 4) | `src/Alondra1.Persistence/SqliteTaskStore.Notes.cs`. Tables `notes`, `note_folders`, `note_assets` and the FTS5 index `notes_fts`. |
 | Cloud Sync | `src/Alondra1.Core/Cloud/CloudSyncEngine.cs`. Kinds `note_folder` and `note`; pictures are uploaded before their note and downloaded after a pull. |
 | UI | `src/Alondra1.App/Notes/`: `NotesView.xaml`, `NotesViewModel.cs`, `NoteEditorHost.cs` (WebView2 bridge), `NotesSamples.cs` (demo notes) |
-| Editor bundle | `src/Alondra1.App/Assets/NotesEditor/` (copied from alondra1-notes-editor; do not edit here) |
+| Editor bundle | `src/Alondra1.App/Assets/NotesEditor/` (copied from alondra1-backend `contract/notes-editor` by `npm run build`; do not edit here) |
 | Tests | `tests/Alondra1.Tests/NotesTests.cs`, plus note steps in `CloudLiveTests.cs` |
 
 ## Behaviour
