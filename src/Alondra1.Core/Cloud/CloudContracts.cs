@@ -26,7 +26,8 @@ public sealed record OutboxItem(long Seq, string EntityType, string EntityId, st
 /// <summary>The server version of an item and its last server JSON (the base for merge patches).</summary>
 public sealed record SyncVersion(string EntityType, string EntityId, long Version, string? ServerJson);
 
-public sealed record SyncIssue(long Id, string EntityType, string EntityId, string Title, string Message, DateTimeOffset CreatedUtc);
+/// <summary>A sync problem shown to the user. CopyId: the conflict copy kept for a note that conflicted (compare and resolve it).</summary>
+public sealed record SyncIssue(long Id, string EntityType, string EntityId, string Title, string Message, DateTimeOffset CreatedUtc, string? CopyId = null);
 
 /// <summary>Sync states (Windows integration spec §6.6; the Android app uses the same names).</summary>
 public enum SyncState
@@ -62,7 +63,7 @@ public interface ICloudSyncStore
 
     Task EnqueueAsync(string entityType, string entityId, bool deleted, CancellationToken cancellationToken);
     Task<IReadOnlyDictionary<(string Type, string Id), SyncVersion>> VersionsAsync(CancellationToken cancellationToken);
-    Task AddIssueAsync(string entityType, string entityId, string title, string message, DateTimeOffset at, CancellationToken cancellationToken);
+    Task AddIssueAsync(string entityType, string entityId, string title, string message, DateTimeOffset at, CancellationToken cancellationToken, string? copyId = null);
     Task<IReadOnlyList<SyncIssue>> IssuesAsync(CancellationToken cancellationToken);
     Task DismissIssueAsync(long id, CancellationToken cancellationToken);
 }

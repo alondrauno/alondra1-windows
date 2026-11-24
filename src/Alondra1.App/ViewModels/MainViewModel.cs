@@ -47,6 +47,7 @@ public sealed partial class MainViewModel : ObservableObject
         PreviousMonthCommand = new RelayCommand(() => ShiftMonth(-1));
         NextMonthCommand = new RelayCommand(() => ShiftMonth(1));
         SelectDayCommand = new RelayCommand<CalendarDay>(SelectDay);
+        MeetingNotesCommand = new AsyncRelayCommand<AgendaEvent>(OpenMeetingNotesAsync);
         ToggleTaskCommand = new RelayCommand<TaskRow>(async row => await ToggleTaskAsync(row));
         AddTaskCommand = new RelayCommand(async () => await AddTaskAsync());
         SaveNoteCommand = new RelayCommand(async () => await SaveNoteAsync());
@@ -79,6 +80,9 @@ public sealed partial class MainViewModel : ObservableObject
     public IRelayCommand PreviousMonthCommand { get; }
     public IRelayCommand NextMonthCommand { get; }
     public IRelayCommand<CalendarDay> SelectDayCommand { get; }
+    public IAsyncRelayCommand<AgendaEvent> MeetingNotesCommand { get; }
+    /// <summary>The selected day's events (Calendar), each with its Meeting notes action.</summary>
+    public ObservableCollection<AgendaEvent> AgendaEvents { get; } = [];
     public IRelayCommand<TaskRow> ToggleTaskCommand { get; }
     public IRelayCommand AddTaskCommand { get; }
     public IRelayCommand SaveNoteCommand { get; }
@@ -1241,7 +1245,10 @@ public sealed partial class MainViewModel : ObservableObject
 
         var chosen = _events.Where(item => item.Start.Year == _month.Year && item.Start.Month == _month.Month && item.Start.Day == _chosenDay).ToList();
         var date = new DateTime(_month.Year, _month.Month, Math.Min(_chosenDay, days));
-        AgendaText = date.ToString("ddd, MMM d") + " · " + (chosen.Count == 0 ? "No events" : string.Join("; ", chosen.Select(item => item.Start.ToLocalTime().ToString("HH:mm") + " · " + item.Subject + (string.IsNullOrEmpty(item.AccountName) ? "" : " · " + item.AccountName))));
+        AgendaText = date.ToString("ddd, MMM d") + " · " + (chosen.Count == 0 ? "No events" : chosen.Count == 1 ? "1 event" : $"{chosen.Count} events");
+        AgendaEvents.Clear();
+        foreach (var item in chosen.OrderBy(e => e.Start))
+            AgendaEvents.Add(new AgendaEvent(item));
         OnPropertyChanged(nameof(MonthLabel));
         OnPropertyChanged(nameof(AgendaText));
     }
@@ -1347,6 +1354,16 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         return notes;
+    }
+
+    /// <summary>Notes spec §11: the event's meeting notes (the linked note, or a new one from the meeting template).</summary>
+    private async Task OpenMeetingNotesAsync(AgendaEvent? item)
+    {
+        if (item is null || !Notes.IsAvailable)
+            return;
+        var e = item.Entry;
+        SelectWorkspace("Notes");
+        await Notes.OpenMeetingNotesAsync(new Alondra1.Core.Notes.NoteLink(Alondra1.Core.Notes.NoteLink.Event, e.Id, e.Subject, e.AccountId), e.Subject, item.When);
     }
 
     /// <summary>Opens the Calendar on the day of a linked event.</summary>
@@ -1661,6 +1678,17 @@ public sealed class WorkspaceChoice : ObservableObject
 
 /// <summary>Connection state shown next to the account selector (replaces the old status row).</summary>
 public enum ConnectionState { Sample, NoAccounts, Ready, Syncing, Offline, Error }
+
+/// <summary>An event in the Calendar's day list.</summary>
+public sealed class AgendaEvent(CalendarEntry entry)
+{
+    public CalendarEntry Entry { get; } = entry;
+    public string Subject => string.IsNullOrWhiteSpace(Entry.Subject) ? "(No title)" : Entry.Subject;
+    public string Time => $"{Entry.Start.ToLocalTime():HH:mm}–{Entry.End.ToLocalTime():HH:mm}" + (string.IsNullOrEmpty(Entry.AccountName) ? "" : " · " + Entry.AccountName);
+    /// <summary>Date and time as written at the top of the meeting notes.</summary>
+    public string When => Entry.Start.ToLocalTime().ToString("dddd, d MMMM yyyy · HH:mm", System.Globalization.CultureInfo.CurrentCulture)
+        + "–" + Entry.End.ToLocalTime().ToString(Entry.End.ToLocalTime().Date == Entry.Start.ToLocalTime().Date ? "HH:mm" : "d MMMM HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+}
 
 public sealed class CalendarDay
 {

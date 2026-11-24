@@ -210,11 +210,14 @@ public sealed class NotesTests : IAsyncDisposable
         }
 
         await OpenAsync(dir);
-        Assert.True(File.Exists(path + ".pre-v4.bak"));
+        Assert.True(File.Exists(path + $".pre-v{SqliteTaskStore.SchemaVersion}.bak"));
         var tasks = new TaskBoard(_store, _clock, TimeZoneInfo.Utc);
         await tasks.LoadAsync();
         Assert.Contains(tasks.Tasks, t => t.Title == "Survives");
         Assert.NotNull(await _notes.CreateAsync(title: "First note"));
+        // Schema 5: sync issues remember a note's conflict copy.
+        await _store.AddIssueAsync(CloudKinds.Note, "n1", "Plan", "Both changed", Start, CancellationToken.None, "copy-1");
+        Assert.Equal("copy-1", Assert.Single(await _store.IssuesAsync(CancellationToken.None)).CopyId);
     }
 
     [Fact]
@@ -348,7 +351,99 @@ public sealed class NotesTests : IAsyncDisposable
         Assert.Contains("edited on the phone", (await _notes.GetAsync("n1"))!.Doc!.ToJsonString());
         var copy = _notes.Notes.Single(n => n.Title == "Shared (conflict copy)");
         Assert.Contains("edited on Windows", (await _notes.GetAsync(copy.Id))!.Doc!.ToJsonString());
-        Assert.Single(await _store.IssuesAsync(CancellationToken.None));
+        var issue = Assert.Single(await _store.IssuesAsync(CancellationToken.None));
+        Assert.Equal(("n1", copy.Id), (issue.EntityId, issue.CopyId));
         Assert.Equal(0, await _store.PendingCountAsync(CancellationToken.None));
+
+        // Combining puts both versions into the note (under its id, so every device converges); the copy goes to Trash.
+        Assert.Equal("n1", await _notes.ResolveConflictAsync("n1", copy.Id, NoteConflictChoice.Combine));
+        var combined = (await _notes.GetAsync("n1"))!.Doc!.ToJsonString();
+        Assert.Contains("edited on the phone", combined);
+        Assert.Contains("edited on Windows", combined);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(combined, "futureNode"));
+        Assert.NotNull(_notes.Find(copy.Id)!.TrashedUtc);
+        Assert.Equal(2, await _store.PendingCountAsync(CancellationToken.None));
+    }
+
+    private static JsonObject Paragraphs(params string[] lines) => NoteMerge.ParagraphDocument(string.Join("\n", lines));
+
+    [Fact]
+    public void Combining_keeps_every_block_once_and_differences_from_both_sides()
+    {
+        var other = Paragraphs("Title", "phone line", "Shared end");
+        var mine = Paragraphs("Title", "PC line", "Shared end", "PC tail");
+        var texts = NoteMerge.CombineDocuments(other, "", mine, "")["content"]!.AsArray().Select(p => p!["content"]?[0]?["text"]?.GetValue<string>()).ToList();
+        Assert.Equal(["Title", "phone line", "PC line", "Shared end", "PC tail"], texts);
+
+        var lines = NoteMerge.DiffLines("a\nb\nc", "a\nB\nc");
+        Assert.Equal([DiffSide.Both, DiffSide.OnlyOther, DiffSide.OnlyMine, DiffSide.Both], lines.Select(l => l.Side));
+        Assert.Equal("a\nb\nB\nc", NoteMerge.CombineText("a\nb\nc", "a\nB\nc"));
+
+        // A plain-text note (no document) combines as paragraphs; the newer schema version is kept.
+        var future = Paragraphs("x");
+        future["schemaVersion"] = 2;
+        var plain = NoteMerge.CombineDocuments(null, "old text", future, "");
+        Assert.Equal(2, plain["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(2, plain["content"]!.AsArray().Count);
+        Assert.Equal("Shared", NoteMerge.OriginalTitle("Shared (conflict copy)"));
+    }
+
+    [Fact]
+    public async Task Resolving_a_conflict_keeps_the_chosen_version()
+    {
+        await OpenAsync();
+        async Task<(string Original, string Copy)> PairAsync()
+        {
+            var original = await _notes.CreateAsync(null, "Plan", Paragraphs("theirs"), text: "theirs", links: [new NoteLink(NoteLink.Task, "t1")]);
+            var mine = await _notes.CreateAsync(null, "Plan", Paragraphs("mine"), text: "mine", links: [new NoteLink(NoteLink.Event, "e1")], assets: ["b".PadLeft(64, 'b')]);
+            var copy = await _notes.ConflictCopyAsync((await _notes.GetAsync(mine.Id))!);
+            await _notes.DeleteForeverAsync([mine.Id]);
+            return (original.Id, copy.Id);
+        }
+
+        var (o1, c1) = await PairAsync();
+        Assert.Equal(o1, await _notes.ResolveConflictAsync(o1, c1, NoteConflictChoice.KeepOther));
+        Assert.Contains("theirs", (await _notes.GetAsync(o1))!.Body);
+        Assert.NotNull(_notes.Find(c1)!.TrashedUtc);
+
+        var (o2, c2) = await PairAsync();
+        await _notes.ResolveConflictAsync(o2, c2, NoteConflictChoice.KeepMine);
+        var kept = (await _notes.GetAsync(o2))!;
+        Assert.Equal(("Plan", "mine"), (kept.Title, kept.Body));
+        Assert.Equal(["b".PadLeft(64, 'b')], kept.Assets);
+        Assert.Equal("e1", Assert.Single(kept.Links).Id);
+        Assert.NotNull(_notes.Find(c2)!.TrashedUtc);
+
+        var (o3, c3) = await PairAsync();
+        await _notes.ResolveConflictAsync(o3, c3, NoteConflictChoice.Combine);
+        var both = (await _notes.GetAsync(o3))!;
+        Assert.Equal("theirs\nmine", both.Body);
+        Assert.Equal(["t1", "e1"], both.Links.Select(l => l.Id));
+
+        var (o4, c4) = await PairAsync();
+        Assert.Equal(c4, await _notes.ResolveConflictAsync(o4, c4, NoteConflictChoice.KeepBoth));
+        Assert.Null(_notes.Find(c4)!.TrashedUtc);
+
+        // Deleted on the other device: keeping mine gives the copy its title back.
+        var (o5, c5) = await PairAsync();
+        await _notes.DeleteForeverAsync([o5]);
+        Assert.Equal(c5, await _notes.ResolveConflictAsync(o5, c5, NoteConflictChoice.KeepMine));
+        Assert.Equal("Plan", _notes.Find(c5)!.Title);
+    }
+
+    [Fact]
+    public async Task Meeting_notes_are_created_once_per_event_and_linked_to_it()
+    {
+        await OpenAsync();
+        var (doc, text) = MeetingNotes.Document("Tuesday, 24 November 2026 · 10:00–11:00", "Room 4\n\nBring the plan");
+        var note = await _notes.CreateAsync(null, MeetingNotes.Title("Design review"), doc, [new NoteLink(NoteLink.Event, "evt-9", "Design review")], text);
+        Assert.Equal("Design review – meeting notes", note.Title);
+        var types = doc["content"]!.AsArray().Select(n => n!["type"]!.GetValue<string>()).ToList();
+        Assert.Equal(["paragraph", "paragraph", "paragraph", "heading", "bulletList", "heading", "paragraph", "heading", "taskList"], types);
+        Assert.StartsWith("Tuesday, 24 November 2026 · 10:00–11:00\nRoom 4\nBring the plan\nAgenda", text);
+        Assert.Equal(note.Id, (await _notes.FindLinkedAsync(NoteLink.Event, "evt-9"))!.Id);
+        Assert.Null(await _notes.FindLinkedAsync(NoteLink.Event, "evt-other"));
+        await _notes.TrashAsync([note.Id]);
+        Assert.Null(await _notes.FindLinkedAsync(NoteLink.Event, "evt-9"));
     }
 }

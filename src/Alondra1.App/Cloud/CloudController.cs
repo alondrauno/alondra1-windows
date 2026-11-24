@@ -37,6 +37,8 @@ public sealed partial class CloudController : ObservableObject
     public CloudSyncEngine? Engine => _services.CloudSync;
     public ICloudSyncStore? Store => _services.TaskStore;
     public bool Available => Engine is not null;
+    /// <summary>Cloud Sync is set up and on.</summary>
+    public bool IsEnabled => _enabled;
     public Uri? BaseUri => Available ? _services.Config.Cloud.EffectiveUri() : null;
 
     /// <summary>Shown in the To-do toolbar only once Cloud Sync was set up.</summary>

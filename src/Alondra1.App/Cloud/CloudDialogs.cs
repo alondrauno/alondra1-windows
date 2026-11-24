@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using Alondra1.App.ViewModels;
+using Alondra1.App.Notes;
 using Alondra1.Core.Cloud;
 
 namespace Alondra1.App.Cloud;
@@ -13,12 +14,13 @@ public static class CloudDialogs
     public static UIElement Page(MainViewModel model)
     {
         var page = new StackPanel { Margin = new Thickness(24, 20, 24, 24), MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Left };
-        _ = RenderAsync(page, model.Cloud);
+        _ = RenderAsync(page, model);
         return page;
     }
 
-    private static async Task RenderAsync(StackPanel page, CloudController cloud)
+    private static async Task RenderAsync(StackPanel page, MainViewModel model)
     {
+        var cloud = model.Cloud;
         page.Children.Clear();
         page.Children.Add(Dialogs.Title("Alondra1 account & Cloud"));
         if (!cloud.Available || cloud.Account is null)
@@ -28,7 +30,7 @@ public static class CloudDialogs
         }
 
         page.Children.Add(Dialogs.Note("Optional. Alondra1 works fully on this PC without an account. A paid plan adds Cloud Sync of your tasks with your other devices, and a cloud Mail Archive."));
-        async Task Redraw() => await RenderAsync(page, cloud);
+        async Task Redraw() => await RenderAsync(page, model);
 
         if (!await cloud.Account.IsSignedInAsync(CancellationToken.None))
         {
@@ -122,6 +124,17 @@ public static class CloudDialogs
                     var dismiss = Dialogs.Button("Dismiss", async () => { await store.DismissIssueAsync(issue.Id, CancellationToken.None); await Redraw(); });
                     DockPanel.SetDock(dismiss, Dock.Right);
                     row.Children.Add(dismiss);
+                    if (issue.CopyId is not null && model.Notes.IsAvailable)
+                    {
+                        // A note conflict: compare both versions and choose (Notes spec 10.2).
+                        var compare = Dialogs.Button("Compare", async () =>
+                        {
+                            await NoteConflictDialog.ShowAsync(Window.GetWindow(page), model.Notes, issue);
+                            await Redraw();
+                        });
+                        DockPanel.SetDock(compare, Dock.Right);
+                        row.Children.Add(compare);
+                    }
                     row.Children.Add(new TextBlock { Text = $"{issue.Title}: {issue.Message}", TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
                     page.Children.Add(row);
                 }

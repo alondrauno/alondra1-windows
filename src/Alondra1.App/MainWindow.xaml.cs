@@ -316,6 +316,9 @@ public partial class MainWindow : Window
 
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--open=", StringComparison.Ordinal)) is { } open)
             OpenWorkspace(open["--open=".Length..]);
+        // --day=<n>: the Calendar with that day of the shown month selected (its events and Meeting notes).
+        if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--day=", StringComparison.Ordinal)) is { } day && int.TryParse(day["--day=".Length..], out var dayNumber))
+            _model.SelectDay(_model.Days.FirstOrDefault(d => d.IsDay && d.Day == dayNumber));
         // --search=<text>: the search state (for example no results).
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--search=", StringComparison.Ordinal)) is { } search)
             SearchBox.Text = search["--search=".Length..];
@@ -339,6 +342,7 @@ public partial class MainWindow : Window
                 "mail" => () => Dialogs.ShowSettings(this, _model, 2),
                 "account" => () => Dialogs.ShowAccount(this, _model, null),
                 "welcome" => () => Dialogs.ShowWelcome(this, _model),
+                "conflict" => () => _ = Alondra1.App.Notes.NotesSamples.ShowConflictAsync(this, _model.Notes),
                 "list" => () => Alondra1.App.Tasks.TodoDialogs.Prompt(this, "New list", "Name (emoji welcome)", "Untitled list"),
                 "alert" => () => Dialogs.Alert(this, "Replace the account list with this file? Existing account modes stay as they are, and saved mail is not deleted.", "Alondra1", MessageBoxButton.OKCancel),
                 _ => () => { },

@@ -180,6 +180,17 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </DockPanel>
+          <!-- A sync conflict of the open note (Notes spec 10.2): both versions were kept; compare and choose. -->
+          <Border DockPanel.Dock="Top" Margin="8,6,8,0" Padding="12,8" CornerRadius="6" Background="{DynamicResource SelectedBrush}"
+                  BorderBrush="{DynamicResource AccentWarmBrush}" BorderThickness="0,0,0,2"
+                  Visibility="{Binding HasConflict, Converter={StaticResource BoolVis}}" AutomationProperties.Name="Sync conflict">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Compare versions" Click="CompareVersions_Click"
+                      AutomationProperties.Name="Compare the two versions of this note"/>
+              <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"
+                         Text="This note was changed on another device and on this PC before they synced. Both versions were kept."/>
+            </DockPanel>
+          </Border>
           <Grid>
             <local:NoteEditorHost x:Name="Editor" Visibility="{Binding HasNote, Converter={StaticResource BoolVis}}"/>
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="{Binding HasNote, Converter={StaticResource BoolVis}, ConverterParameter=invert}">

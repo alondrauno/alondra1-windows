@@ -77,7 +77,10 @@ public sealed partial class NotesViewModel : ObservableObject
         Host = host;
         _board = services.NotesBoard;
         if (_board is not null)
+        {
             _board.Changed += Refresh;
+            _board.Changed += () => _ = RefreshConflictAsync(); // sync may have added or resolved a conflict copy
+        }
         _searchTimer.Tick += async (_, _) => { _searchTimer.Stop(); await RunSearchAsync(); };
         Sort = services.Config.Notes.Sort;
         Descending = services.Config.Notes.Descending;
@@ -267,6 +270,92 @@ public sealed partial class NotesViewModel : ObservableObject
         }
 
         Raise();
+        await RefreshConflictAsync();
+    }
+
+    // ------------------------------------------------------------------ sync conflicts (Notes spec §10.2)
+
+    /// <summary>The unresolved sync conflict of the open note (it or its conflict copy is open), or null.</summary>
+    public Alondra1.Core.Cloud.SyncIssue? Conflict { get; private set; }
+    public bool HasConflict => Conflict is not null;
+
+    public async Task RefreshConflictAsync()
+    {
+        var found = _openId is { } id && _services.TaskStore is { } store
+            ? (await store.IssuesAsync(CancellationToken.None)).FirstOrDefault(i => i.EntityType == Alondra1.Core.Cloud.CloudKinds.Note && i.CopyId is not null && (i.EntityId == id || i.CopyId == id))
+            : null;
+        if (found == Conflict)
+            return;
+        Conflict = found;
+        OnPropertyChanged(nameof(Conflict));
+        OnPropertyChanged(nameof(HasConflict));
+    }
+
+    /// <summary>Both versions of a conflict: the note (other device) and its conflict copy (this PC). Either may be gone.</summary>
+    public async Task<(Note? Other, Note? Mine)> ConflictVersionsAsync(Alondra1.Core.Cloud.SyncIssue issue)
+    {
+        await FlushAsync();
+        return (await _board!.GetAsync(issue.EntityId), issue.CopyId is null ? null : await _board.GetAsync(issue.CopyId));
+    }
+
+    public async Task DismissConflictAsync(Alondra1.Core.Cloud.SyncIssue issue)
+    {
+        if (_services.TaskStore is { } store)
+            await store.DismissIssueAsync(issue.Id, CancellationToken.None);
+        await RefreshConflictAsync();
+    }
+
+    /// <summary>Applies the user's choice, removes the sync issue and shows the resulting note. Sync sends the result.</summary>
+    public async Task ResolveConflictAsync(Alondra1.Core.Cloud.SyncIssue issue, NoteConflictChoice choice)
+    {
+        if (_board is null || issue.CopyId is null)
+            return;
+        await FlushAsync();
+        var show = await _board.ResolveConflictAsync(issue.EntityId, issue.CopyId, choice);
+        if (_services.TaskStore is { } store)
+            await store.DismissIssueAsync(issue.Id, CancellationToken.None);
+        Refresh();
+        _openId = null; // reload: the open note's content may have changed
+        await OpenAsync(show);
+        SetStatus(choice switch
+        {
+            NoteConflictChoice.KeepOther => "Kept the other device's version. This PC's version is in Trash.",
+            NoteConflictChoice.KeepMine => "Kept this PC's version. The conflict copy is in Trash.",
+            NoteConflictChoice.Combine => "Both versions are in this note. Remove what you don't need; the conflict copy is in Trash.",
+            _ => "Kept both notes.",
+        });
+        if (Host.Cloud.IsEnabled)
+            _ = Host.Cloud.SyncAsync();
+    }
+
+    // ------------------------------------------------------------------ meeting notes (Notes spec §11)
+
+    /// <summary>
+    /// Opens the meeting notes of a calendar event: the note already linked to it, or a new one from the meeting
+    /// template, linked to the event.
+    /// </summary>
+    public async Task OpenMeetingNotesAsync(NoteLink eventLink, string subject, string when)
+    {
+        if (_board is null)
+            return;
+        await FlushAsync();
+        if (await _board.FindLinkedAsync(NoteLink.Event, eventLink.Id) is { } existing)
+        {
+            if (!NotesBoard.InView(NoteSummary.From(existing), View, FolderId))
+            {
+                View = existing.ArchivedUtc is null ? NoteView.All : NoteView.Archive;
+                FolderId = null;
+            }
+
+            _searchIds = null;
+            SearchText = "";
+            Refresh();
+            await OpenAsync(existing.Id);
+            return;
+        }
+
+        var (doc, text) = MeetingNotes.Document(when);
+        await NewNoteAsync(MeetingNotes.Title(subject), doc, [eventLink], text);
     }
 
     private async Task OnEditorMessageAsync(JsonObject m)

@@ -453,6 +453,12 @@ public partial class NotesView : UserControl
         await Task.CompletedTask;
     }
 
+    private void CompareVersions_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is { Conflict: { } issue } model)
+            _ = NoteConflictDialog.ShowAsync(Owner, model, issue);
+    }
+
     private void LinkChip_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is NoteLinkChip chip)

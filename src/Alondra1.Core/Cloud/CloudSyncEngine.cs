@@ -436,8 +436,9 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             _ = copy;
         }
 
+        string? copyId = null;
         if (item.EntityType == CloudKinds.Note && notes is not null && await notes.GetAsync(item.EntityId, ct).ConfigureAwait(true) is { } myNote)
-            await notes.ConflictCopyAsync(myNote).ConfigureAwait(true);
+            copyId = (await notes.ConflictCopyAsync(myNote).ConfigureAwait(true)).Id;
 
         if (current is not null && !currentDeleted)
             await ApplyAsync([new JsonObject { ["resource_type"] = item.EntityType, ["action"] = "upsert", ["resource_id"] = item.EntityId, ["record"] = current.DeepClone() }], null, ct, force: true).ConfigureAwait(true);
@@ -446,7 +447,7 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
         await store.AddIssueAsync(item.EntityType, item.EntityId, title,
             currentDeleted ? "It was deleted on another device while you edited it here. Your version was kept as a conflict copy."
                 : "It was changed on another device too. The other version is shown; yours was kept as a conflict copy.",
-            clock.UtcNow, ct).ConfigureAwait(true);
+            clock.UtcNow, ct, copyId).ConfigureAwait(true);
     }
 
     // ------------------------------------------------------------------ pull

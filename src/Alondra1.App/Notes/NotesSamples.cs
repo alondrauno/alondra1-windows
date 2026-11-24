@@ -7,6 +7,18 @@ namespace Alondra1.App.Notes;
 /// <summary>Sample notes for demo runs (screenshots, first look). Never written outside demo mode.</summary>
 public static class NotesSamples
 {
+    /// <summary>Demo only (--dialog=conflict snapshots): two versions of a note, shown in the compare dialog.</summary>
+    public static async Task ShowConflictAsync(Window owner, NotesViewModel model)
+    {
+        if (model.Board is not { } board)
+            return;
+        string[] shared = ["Packing list", "Passport and tickets", "Charger"];
+        var other = await board.CreateAsync(null, "Trip", NoteMerge.ParagraphDocument(string.Join('\n', shared.Append("Sunscreen"))), text: string.Join('\n', shared.Append("Sunscreen")));
+        var mine = await board.CreateAsync(null, "Trip (conflict copy)", NoteMerge.ParagraphDocument(string.Join('\n', shared.Append("Rain jacket").Append("Book"))),
+            text: string.Join('\n', shared.Append("Rain jacket").Append("Book")));
+        await NoteConflictDialog.ShowAsync(owner, model, new Alondra1.Core.Cloud.SyncIssue(0, "note", other.Id, "Trip", "Changed on two devices", board.Now, mine.Id));
+    }
+
     public static async Task SeedAsync(NotesBoard board, NoteAssets? assets)
     {
         if (board.Notes.Count > 0)

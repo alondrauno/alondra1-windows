@@ -182,11 +182,76 @@ public sealed class NotesBoard(INoteStore store, IClock clock)
     {
         var copy = mine.Clone();
         copy.Id = NewId();
-        copy.Title = Clip((string.IsNullOrWhiteSpace(mine.Title) ? "Note" : mine.Title) + " (conflict copy)", MaxTitle);
+        copy.Title = Clip((string.IsNullOrWhiteSpace(mine.Title) ? "Note" : mine.Title) + NoteMerge.ConflictSuffix, MaxTitle);
         copy.CreatedUtc = clock.UtcNow;
         copy.ModifiedUtc = clock.UtcNow;
         await WriteAsync(copy).ConfigureAwait(true);
         return copy;
+    }
+
+    /// <summary>
+    /// Resolves a sync conflict between a note (the other device's version, under the original id) and its conflict copy
+    /// (this device's version). The original id keeps the result so every device converges; the conflict copy goes to
+    /// Trash, where it can still be restored. Returns the note to show afterwards.
+    /// </summary>
+    public async Task<string?> ResolveConflictAsync(string originalId, string copyId, NoteConflictChoice choice)
+    {
+        var copy = await store.GetNoteAsync(copyId, CancellationToken.None).ConfigureAwait(true);
+        var original = await store.GetNoteAsync(originalId, CancellationToken.None).ConfigureAwait(true);
+        switch (choice)
+        {
+            case NoteConflictChoice.KeepBoth:
+                return copy?.Id ?? original?.Id;
+            case NoteConflictChoice.KeepOther:
+                if (copy is not null)
+                    await TrashAsync([copy.Id]).ConfigureAwait(true);
+                return original?.Id;
+        }
+
+        if (copy is null)
+            return original?.Id;
+        if (original is null)
+        {
+            // The other device deleted the note: this device's version stays, under its own title again.
+            await EditAsync([copy.Id], n => n.Title = Clip(NoteMerge.OriginalTitle(n.Title), MaxTitle)).ConfigureAwait(true);
+            return copy.Id;
+        }
+
+        if (choice == NoteConflictChoice.KeepMine)
+        {
+            original.Title = Clip(NoteMerge.OriginalTitle(copy.Title), MaxTitle);
+            original.Doc = copy.Doc?.DeepClone() as JsonObject;
+            original.Body = copy.Body;
+            original.Assets = [.. copy.Assets];
+            original.Links = copy.Links.Select(l => l with { }).ToList();
+        }
+        else
+        {
+            var doc = NoteMerge.CombineDocuments(original.Doc, original.Body, copy.Doc, copy.Body);
+            if (System.Text.Encoding.UTF8.GetByteCount(doc.ToJsonString()) > MaxDocumentBytes)
+                throw new NoteStorageException("Both versions together are over 2 MB of text and tables. Keep one version, or keep both as separate notes.");
+            original.Doc = doc;
+            original.Body = Clip(NoteMerge.CombineText(original.Body, copy.Body), MaxBody);
+            original.Assets = original.Assets.Concat(copy.Assets).Distinct().ToList();
+            original.Links = original.Links.Concat(copy.Links.Where(l => !original.Links.Any(o => o.Type == l.Type && o.Id == l.Id))).Take(50).ToList();
+        }
+
+        original.ModifiedUtc = clock.UtcNow;
+        await WriteAsync(original).ConfigureAwait(true);
+        await TrashAsync([copy.Id]).ConfigureAwait(true);
+        return original.Id;
+    }
+
+    /// <summary>The first note (not in Trash) that links to the object, e.g. an event's meeting notes.</summary>
+    public async Task<Note?> FindLinkedAsync(string type, string id)
+    {
+        foreach (var summary in _notes.Values.Where(n => n.LinkCount > 0 && n.TrashedUtc is null).OrderByDescending(n => n.ModifiedUtc).ToList())
+        {
+            if (await store.GetNoteAsync(summary.Id, CancellationToken.None).ConfigureAwait(true) is { } note && note.Links.Any(l => l.Type == type && l.Id == id))
+                return note;
+        }
+
+        return null;
     }
 
     private async Task EditAsync(IReadOnlyCollection<string> ids, Action<Note> edit)

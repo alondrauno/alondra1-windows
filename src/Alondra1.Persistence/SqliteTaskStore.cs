@@ -13,7 +13,7 @@ namespace Alondra1.Persistence;
 public sealed partial class SqliteTaskStore : ITaskStore, ICloudSyncStore, IAsyncDisposable
 {
     /// <summary>Schema version written by this build. Opening a newer file is refused without changing it.</summary>
-    public const int SchemaVersion = 4;
+    public const int SchemaVersion = 5;
 
     private static readonly JsonSerializerOptions Json = TodoTransfer.CreateOptions();
     private readonly string _path;
@@ -443,20 +443,21 @@ public sealed partial class SqliteTaskStore : ITaskStore, ICloudSyncStore, IAsyn
             return map;
         }, cancellationToken);
 
-    public Task AddIssueAsync(string entityType, string entityId, string title, string message, DateTimeOffset at, CancellationToken cancellationToken) =>
-        InTransactionAsync((c, tx) => ExecAsync(c, tx, "INSERT INTO sync_issues(entity_type, entity_id, title, message, created_utc) VALUES ($type, $id, $title, $message, $at)",
-            cancellationToken, ("$type", entityType), ("$id", entityId), ("$title", title), ("$message", message), ("$at", at.ToString("O", CultureInfo.InvariantCulture))), cancellationToken);
+    public Task AddIssueAsync(string entityType, string entityId, string title, string message, DateTimeOffset at, CancellationToken cancellationToken, string? copyId = null) =>
+        InTransactionAsync((c, tx) => ExecAsync(c, tx, "INSERT INTO sync_issues(entity_type, entity_id, title, message, created_utc, copy_id) VALUES ($type, $id, $title, $message, $at, $copy)",
+            cancellationToken, ("$type", entityType), ("$id", entityId), ("$title", title), ("$message", message), ("$at", at.ToString("O", CultureInfo.InvariantCulture)),
+            ("$copy", (object?)copyId ?? DBNull.Value)), cancellationToken);
 
     public Task<IReadOnlyList<SyncIssue>> IssuesAsync(CancellationToken cancellationToken) =>
         LockedAsync<IReadOnlyList<SyncIssue>>(async c =>
         {
             var list = new List<SyncIssue>();
             await using var command = c.CreateCommand();
-            command.CommandText = "SELECT id, entity_type, entity_id, title, message, created_utc FROM sync_issues ORDER BY id DESC LIMIT 100";
+            command.CommandText = "SELECT id, entity_type, entity_id, title, message, created_utc, copy_id FROM sync_issues ORDER BY id DESC LIMIT 100";
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 list.Add(new SyncIssue(reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4),
-                    DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture)));
+                    DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture), reader.IsDBNull(6) ? null : reader.GetString(6)));
             return list;
         }, cancellationToken);
 
@@ -571,6 +572,8 @@ public sealed partial class SqliteTaskStore : ITaskStore, ICloudSyncStore, IAsyn
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(id UNINDEXED, title, body, tokenize = 'unicode61 remove_diacritics 2');
             """),
+        // A note conflict remembers its conflict copy, so the user can compare the two versions and resolve them.
+        (5, "ALTER TABLE sync_issues ADD COLUMN copy_id TEXT;"),
     ];
 
     private static async Task MigrateAsync(SqliteConnection connection, long from, int to, CancellationToken cancellationToken)
