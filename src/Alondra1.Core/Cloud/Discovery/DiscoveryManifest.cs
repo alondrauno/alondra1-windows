@@ -36,7 +36,7 @@ public static partial class DiscoveryManifest
     [GeneratedRegex("^[a-z0-9-]{1,32}$")] private static partial Regex IdPattern();
     [GeneratedRegex("^[a-z0-9]{2,16}$")] private static partial Regex RegionPattern();
     [GeneratedRegex(@"^(?:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?\.)?api\.alondra1\.com$")] private static partial Regex ProdHost();
-    [GeneratedRegex(@"^(?:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?\.)?api\.dev\.alondra1\.com$")] private static partial Regex DevHost();
+    [GeneratedRegex(@"^(?:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?\.)?api\.alondra1\.dev$")] private static partial Regex DevHost();
     [GeneratedRegex("^[A-Za-z0-9+/]*={0,2}$")] private static partial Regex Base64Chars();
 
     /// <summary>Whether a host may appear in a manifest of the environment (a dev host never matches prod and the reverse).</summary>

@@ -16,9 +16,9 @@ public static class BuildEnvironment
     public const string DisplayName = "Alondra1 Dev";
     /// <summary>Folder below %LOCALAPPDATA%: dev data never mixes with an installed prod app.</summary>
     public const string DataFolder = "alondra1-dev";
-    public const string ApiOrigin = "https://api.dev.alondra1.com";
+    public const string ApiOrigin = "https://api.alondra1.dev";
     public static readonly Uri[] DiscoveryUrls =
-        [new("https://config.dev.alondra1.com/manifest.json"), new("https://config2.dev.alondra1.com/manifest.json")];
+        [new("https://config.alondra1.dev/manifest.json"), new("https://config2.alondra1.dev/manifest.json")];
     /// <summary>Public keys of the dev discovery signer (alondra1-infra discovery/trust/dev.json). Empty until created.</summary>
     private const string TrustJson = """{"keys": []}""";
 #else
@@ -55,7 +55,7 @@ public static class BuildEnvironment
         if (address.Scheme != Uri.UriSchemeHttps)
             return false;
         var host = address.Host.ToLowerInvariant();
-        var isDevHost = host == "dev.alondra1.com" || host.EndsWith(".dev.alondra1.com", StringComparison.Ordinal);
+        var isDevHost = host == "alondra1.dev" || host.EndsWith(".alondra1.dev", StringComparison.Ordinal);
         var isProdHost = !isDevHost && (host == "alondra1.com" || host.EndsWith(".alondra1.com", StringComparison.Ordinal));
         return IsDev ? !isProdHost : !isDevHost;
     }

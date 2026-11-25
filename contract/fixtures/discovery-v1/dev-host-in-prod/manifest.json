@@ -7,7 +7,7 @@
   "endpoints": [
     {
       "id": "api",
-      "url": "https://api.dev.alondra1.com",
+      "url": "https://api.alondra1.dev",
       "region": "eu1",
       "priority": 20,
       "enabled": true,

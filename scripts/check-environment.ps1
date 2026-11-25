@@ -8,11 +8,11 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $forbidden = if ($Environment -eq "prod") {
-    @("https://api.dev.alondra1.com", "https://config.dev.alondra1.com", "https://config2.dev.alondra1.com", "https://app.dev.alondra1.com")
+    @("https://api.alondra1.dev", "https://config.alondra1.dev", "https://config2.alondra1.dev", "https://app.alondra1.dev")
 } else {
     @("https://api.alondra1.com", "https://config.alondra1.com", "https://config2.alondra1.com", "https://app.alondra1.com")
 }
-$required = if ($Environment -eq "prod") { "https://api.alondra1.com" } else { "https://api.dev.alondra1.com" }
+$required = if ($Environment -eq "prod") { "https://api.alondra1.com" } else { "https://api.alondra1.dev" }
 $files = Get-ChildItem -Path $Path -Recurse -Include *.exe, *.dll -File
 if (-not $files) { throw "No binaries found in $Path" }
 $found = $false

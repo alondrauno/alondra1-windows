@@ -1,5 +1,5 @@
 {
   "alg": "Ed25519",
   "key_id": "test-dev-1",
-  "signature": "rkrpkSBlE5YGC6w9kmi1aOfk+ZgH4AOnaU0XPGft8LyI0PkGpy7z73vraIzSjrma6Rzm3n0sPLCIaGO6HXfmAg=="
+  "signature": "UgIT+hoG7YNawhyzt08I8c5bn/xjolwh2J2TgJNMBTKinEllqe9w1S4TbwSfKRmUO8z22a02OUk6DOK5uqkQCg=="
 }

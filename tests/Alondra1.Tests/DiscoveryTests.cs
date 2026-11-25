@@ -93,8 +93,8 @@ public class DiscoveryTests
     [Theory]
     [InlineData("api.alondra1.com", true, false)]
     [InlineData("eu1.api.alondra1.com", true, false)]
-    [InlineData("api.dev.alondra1.com", false, true)]
-    [InlineData("eu1.api.dev.alondra1.com", false, true)]
+    [InlineData("api.alondra1.dev", false, true)]
+    [InlineData("eu1.api.alondra1.dev", false, true)]
     [InlineData("a.b.api.alondra1.com", false, false)]
     [InlineData("api.alondra1.com.evil.test", false, false)]
     [InlineData("xapi.alondra1.com", false, false)]
@@ -110,7 +110,7 @@ public class DiscoveryTests
         Assert.False(BuildEnvironment.IsDev); // the test project builds prod
         Assert.True(BuildEnvironment.AllowsCloudAddress(new Uri("https://api.alondra1.com/")));
         Assert.True(BuildEnvironment.AllowsCloudAddress(new Uri("http://127.0.0.1:8080/")));
-        Assert.False(BuildEnvironment.AllowsCloudAddress(new Uri("https://api.dev.alondra1.com/")));
+        Assert.False(BuildEnvironment.AllowsCloudAddress(new Uri("https://api.alondra1.dev/")));
         Assert.False(BuildEnvironment.AllowsCloudAddress(new Uri("http://api.alondra1.com/")));
         Assert.Equal("alondra1", BuildEnvironment.DataFolder);
         Assert.DoesNotContain(".dev.", BuildEnvironment.ApiOrigin);
