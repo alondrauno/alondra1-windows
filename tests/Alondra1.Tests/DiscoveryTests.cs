@@ -92,10 +92,11 @@ public class DiscoveryTests
 
     [Theory]
     [InlineData("api.alondra1.com", true, false)]
-    [InlineData("eu1.api.alondra1.com", true, false)]
+    [InlineData("eu1-api.alondra1.com", true, false)]
     [InlineData("api.alondra1.dev", false, true)]
-    [InlineData("eu1.api.alondra1.dev", false, true)]
-    [InlineData("a.b.api.alondra1.com", false, false)]
+    [InlineData("eu1-api.alondra1.dev", false, true)]
+    [InlineData("eu1.api.alondra1.com", false, false)]
+    [InlineData("-api.alondra1.com", false, false)]
     [InlineData("api.alondra1.com.evil.test", false, false)]
     [InlineData("xapi.alondra1.com", false, false)]
     public void Host_rules_separate_environments(string host, bool prod, bool dev)
@@ -190,21 +191,21 @@ public class DiscoveryTests
     private static (HttpClient, FakeServer, EndpointSelector) Failover(Func<HttpRequestMessage, HttpResponseMessage> respond)
     {
         var selector = new EndpointSelector([
-            new DiscoveryEndpoint("eu1", new Uri("https://eu1.api.alondra1.com/"), "eu1", 10),
+            new DiscoveryEndpoint("eu1", new Uri("https://eu1-api.alondra1.com/"), "eu1", 10),
             new DiscoveryEndpoint("api", new Uri("https://api.alondra1.com/"), "eu1", 20)]);
         var server = new FakeServer(respond);
-        return (new HttpClient(new EndpointFailoverHandler(selector, server)) { BaseAddress = new Uri("https://eu1.api.alondra1.com/") }, server, selector);
+        return (new HttpClient(new EndpointFailoverHandler(selector, server)) { BaseAddress = new Uri("https://eu1-api.alondra1.com/") }, server, selector);
     }
 
     [Fact]
     public async Task Failover_on_transport_errors_and_gateway_answers_with_the_same_body()
     {
-        var (http, server, selector) = Failover(r => r.RequestUri!.Host == "eu1.api.alondra1.com"
+        var (http, server, selector) = Failover(r => r.RequestUri!.Host == "eu1-api.alondra1.com"
             ? throw new HttpRequestException("connection refused")
             : new HttpResponseMessage(HttpStatusCode.OK));
         var response = await http.PostAsync("/v1/sync/push", new StringContent("""{"mutations":[{"mutation_id":"m1"}]}""", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(["eu1.api.alondra1.com", "api.alondra1.com"], server.Requests.Select(r => r.RequestUri!.Host));
+        Assert.Equal(["eu1-api.alondra1.com", "api.alondra1.com"], server.Requests.Select(r => r.RequestUri!.Host));
         Assert.Equal(server.Bodies[0], server.Bodies[1]);
         Assert.Equal("api", selector.Candidates()[0].Id); // eu1 is paused now
     }
@@ -228,7 +229,7 @@ public class DiscoveryTests
     {
         var (http, server, selector) = Failover(r =>
         {
-            if (r.RequestUri!.Host != "eu1.api.alondra1.com")
+            if (r.RequestUri!.Host != "eu1-api.alondra1.com")
                 return new HttpResponseMessage(HttpStatusCode.OK);
             var busy = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
             busy.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(10));

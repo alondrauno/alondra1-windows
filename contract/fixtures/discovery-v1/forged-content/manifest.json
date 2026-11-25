@@ -18,7 +18,7 @@
     },
     {
       "id": "eu1",
-      "url": "https://eu1.api.alondra1.co",
+      "url": "https://eu1-api.alondra1.co",
       "region": "eu1",
       "priority": 10,
       "enabled": true,
