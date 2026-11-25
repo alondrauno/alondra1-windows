@@ -19,8 +19,8 @@ public static class BuildEnvironment
     public const string ApiOrigin = "https://api.alondra1.dev";
     public static readonly Uri[] DiscoveryUrls =
         [new("https://config.alondra1.dev/manifest.json"), new("https://config2.alondra1.dev/manifest.json")];
-    /// <summary>Public keys of the dev discovery signer (alondra1-infra discovery/trust/dev.json). Empty until created.</summary>
-    private const string TrustJson = """{"keys": []}""";
+    /// <summary>Public keys of the dev discovery signer (alondra1-infra discovery/trust/dev.json).</summary>
+    private const string TrustJson = """{"keys":[{"key_id":"dev-2026-1","environment":"dev","public_key":"9866fABqc4F5q2wLZ2WgMZ0KF5AUZwXepQo5KYqGCSw="}]}""";
 #else
     public const string Name = "prod";
 
