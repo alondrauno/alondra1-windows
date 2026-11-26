@@ -29,6 +29,8 @@ public sealed class ScriptedCloud : HttpMessageHandler
     public Func<JsonObject, HttpResponseMessage>? PushResponder { get; set; }
     /// <summary>Task files stored with PUT /v1/task-files/{sha256}.</summary>
     public Dictionary<string, byte[]> Files { get; } = [];
+    /// <summary>Status answered to task-file uploads (201 stores the file).</summary>
+    public HttpStatusCode FileUploadStatus { get; set; } = HttpStatusCode.Created;
 
     public static HttpResponseMessage Json(string body, HttpStatusCode code = HttpStatusCode.OK) =>
         new(code) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -80,6 +82,8 @@ public sealed class ScriptedCloud : HttpMessageHandler
             var sha = path["/v1/task-files/".Length..];
             if (request.Method == HttpMethod.Put)
             {
+                if (FileUploadStatus != HttpStatusCode.Created)
+                    return Json("""{"error":{"code":"FILE_TOO_LARGE","message":"A file can be at most 25 MB."}}""", FileUploadStatus);
                 Files[sha] = await request.Content!.ReadAsByteArrayAsync(cancellationToken);
                 return Json("""{"id":"x","mime_type":"application/pdf","bytes":1,"created_at":"2026-11-23T10:00:00Z"}""", HttpStatusCode.Created);
             }
@@ -231,6 +235,83 @@ public sealed class CloudSyncTests : IAsyncDisposable
     }
 
     [Fact]
+    public void Attachment_merge_follows_the_shared_contract_fixture()
+    {
+        var root = AppContext.BaseDirectory;
+        while (!Directory.Exists(Path.Combine(root, "contract")))
+            root = Path.GetDirectoryName(root)!;
+        var fixture = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "contract", "fixtures", "todo-v1", "merge-attachments.json")))!;
+        foreach (var c in fixture["cases"]!.AsArray().OfType<JsonObject>())
+        {
+            var merged = AttachmentMerge.Merge(c["base"] as JsonArray, c["local"] as JsonArray, c["remote"] as JsonArray);
+            Assert.True(c["expected"]!.AsArray().Select(n => n!.GetValue<string>()).SequenceEqual(merged.Select(n => n!["id"]!.GetValue<string>())),
+                c["name"]!.GetValue<string>());
+        }
+    }
+
+    private static JsonObject FileNode(string id, char sha) => new()
+    {
+        ["id"] = id, ["fileName"] = id + ".pdf", ["size"] = 3, ["addedUtc"] = "2026-11-01T00:00:00Z", ["sha256"] = new string(sha, 64), ["mediaType"] = "application/pdf",
+    };
+
+    [Fact]
+    public async Task A_conflict_never_brings_back_a_removed_attachment_nor_duplicates_files()
+    {
+        await Start_();
+        var shared = JsonNode.Parse(TaskRecord("t1", 3, "Shared task", "d"))!.AsObject();
+        shared["record"]!["task"]!["attachments"] = new JsonArray(FileNode("a1", '1'), FileNode("a2", '2'));
+        _cloud.BootstrapItems = $"[{ListRecord("d", 1, true)},{shared.ToJsonString()}]";
+        await _engine.EnableAsync(Tenant);
+        // Here: a1 removed. Elsewhere: renamed, and a3 added.
+        await _board.UpdateTaskAsync("t1", t => t.Attachments.RemoveAll(a => a.Id == "a1"));
+        _cloud.PushResponder = request =>
+        {
+            var m = request["mutations"]!.AsArray()[0]!;
+            var current = JsonNode.Parse(TaskRecord("t1", 4, "Renamed on the phone", "d"))!["record"]!.AsObject();
+            current["task"]!["attachments"] = new JsonArray(FileNode("a1", '1'), FileNode("a2", '2'), FileNode("a3", '3'));
+            _cloud.PushResponder = null;
+            return ScriptedCloud.Json($$"""{"results":[{"mutation_id":"{{m["mutation_id"]}}","status":"conflict","code":"VERSION_CONFLICT","current":{{current.ToJsonString()}}}]}""");
+        };
+
+        await _engine.SyncNowAsync();
+
+        var task = _board.FindTask("t1")!;
+        Assert.Equal("Renamed on the phone", task.Title);
+        Assert.Equal(["a2", "a3"], task.Attachments.Select(a => a.Id));
+        // Only the attachments differed here: merged, no conflict copy, no issue; the merge went back to the server.
+        Assert.DoesNotContain(_board.Tasks, t => t.Title.EndsWith("(conflict copy)", StringComparison.Ordinal));
+        Assert.Empty(await _store.IssuesAsync(CancellationToken.None));
+        var patch = Sent.Last(m => m["resource_id"]!.GetValue<string>() == "t1");
+        Assert.Equal(["a2", "a3"], patch["changes"]!["attachments"]!.AsArray().Select(n => n!["id"]!.GetValue<string>()));
+    }
+
+    [Fact]
+    public async Task A_conflict_copy_carries_no_attachments_while_the_original_exists()
+    {
+        await Start_();
+        var shared = JsonNode.Parse(TaskRecord("t1", 3, "Shared task", "d"))!.AsObject();
+        shared["record"]!["task"]!["attachments"] = new JsonArray(FileNode("a1", '1'));
+        _cloud.BootstrapItems = $"[{ListRecord("d", 1, true)},{shared.ToJsonString()}]";
+        await _engine.EnableAsync(Tenant);
+        await _board.UpdateTaskAsync("t1", t => t.Title = "Edited on Windows");
+        _cloud.PushResponder = request =>
+        {
+            var m = request["mutations"]!.AsArray()[0]!;
+            var current = JsonNode.Parse(TaskRecord("t1", 4, "Edited on the phone", "d"))!["record"]!.AsObject();
+            current["task"]!["attachments"] = new JsonArray(FileNode("a1", '1'));
+            _cloud.PushResponder = null;
+            return ScriptedCloud.Json($$"""{"results":[{"mutation_id":"{{m["mutation_id"]}}","status":"conflict","code":"VERSION_CONFLICT","current":{{current.ToJsonString()}}}]}""");
+        };
+
+        await _engine.SyncNowAsync();
+
+        var copy = Assert.Single(_board.Tasks, t => t.Title == "Edited on Windows (conflict copy)");
+        Assert.Empty(copy.Attachments);
+        Assert.Equal(["a1"], _board.FindTask("t1")!.Attachments.Select(a => a.Id));
+        Assert.Single(await _store.IssuesAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task A_pull_never_overwrites_unsent_edits()
     {
         await Start_();
@@ -367,6 +448,113 @@ public sealed class CloudSyncTests : IAsyncDisposable
         Assert.Equal(other, await File.ReadAllBytesAsync(_taskFiles.Resolve(remote)!));
         _cloud.Files["f".PadRight(64, 'f')] = other;
         Assert.False(await _engine.DownloadTaskFileAsync("f".PadRight(64, 'f'))); // bytes that do not match are not kept
+    }
+
+    [Fact]
+    public async Task Files_attached_before_cloud_files_stay_on_this_pc_until_the_user_agrees()
+    {
+        await Start_(withFiles: true);
+        var source = Path.Combine(Path.GetDirectoryName(_path)!, "private.pdf");
+        await File.WriteAllBytesAsync(source, Encoding.ASCII.GetBytes("%PDF-1.7 my old private file"));
+        var task = await _board.AddTaskAsync(_board.DefaultList.Id, "Taxes");
+        var old = _taskFiles!.Import(task.Id, source, Start.AddDays(-30)); // attached a month before Cloud Sync
+        await _board.UpdateTaskAsync(task.Id, t => t.Attachments.Add(old));
+        var asked = 0;
+        _engine.LegacyTaskFilesWaiting += () => asked++;
+
+        Assert.Equal(SyncState.Synced, (await _engine.EnableAsync(Tenant)).State);
+        Assert.Equal(1, asked);
+        Assert.Null(await _engine.LegacyTaskFilesChoiceAsync());
+        Assert.DoesNotContain(_cloud.Paths, p => p == "/v1/task-files/" + old.Sha256);
+        Assert.Empty(_cloud.Files);
+        var sent = _cloud.Pushes.SelectMany(p => p["mutations"]!.AsArray()).OfType<JsonObject>().Single(m => m["resource_id"]!.GetValue<string>() == task.Id);
+        var listed = sent["resource"]!["attachments"]![0]!.AsObject();
+        Assert.Equal("private.pdf", listed["fileName"]!.GetValue<string>());
+        Assert.False(listed.ContainsKey("sha256")); // no reference to a cloud copy that does not exist
+        Assert.Single(await _engine.LegacyTaskFileTasksAsync());
+
+        // "Keep on this PC": later syncs still do not upload, and the question is not asked again.
+        await _engine.SetLegacyTaskFilesChoiceAsync(upload: false);
+        await _board.UpdateTaskAsync(task.Id, t => t.Title = "Taxes 2026");
+        await _engine.SyncNowAsync();
+        Assert.Empty(_cloud.Files);
+        Assert.Equal(1, asked);
+
+        // The choice survives a restart; changing it to upload sends the file before the re-queued task.
+        var again = new CloudSyncEngine(_board, _store, new CloudApi(new Uri("http://127.0.0.1:9/"), _tokens, _cloud), new FixedClock(Start), taskFiles: _taskFiles);
+        Assert.False(await again.LegacyTaskFilesChoiceAsync());
+        await again.SetLegacyTaskFilesChoiceAsync(upload: true);
+        await _board.UpdateTaskAsync(task.Id, _ => { }, "Prepare files for sync", undoable: false);
+        _cloud.Pushes.Clear();
+        await again.SyncNowAsync();
+        Assert.Equal(await File.ReadAllBytesAsync(source), _cloud.Files[old.Sha256!]);
+        var resent = _cloud.Pushes.SelectMany(p => p["mutations"]!.AsArray()).OfType<JsonObject>().Last(m => m["resource_id"]!.GetValue<string>() == task.Id);
+        var attachments = (resent["resource"] ?? resent["changes"])!["attachments"]!.AsArray();
+        Assert.Equal(old.Sha256, attachments[0]!["sha256"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Files_attached_after_cloud_sync_was_on_upload_without_asking()
+    {
+        await Start_(withFiles: true);
+        var asked = 0;
+        _engine.LegacyTaskFilesWaiting += () => asked++;
+        await _engine.EnableAsync(Tenant);
+        var source = Path.Combine(Path.GetDirectoryName(_path)!, "new.pdf");
+        await File.WriteAllBytesAsync(source, Encoding.ASCII.GetBytes("%PDF-1.7 new"));
+        var task = await _board.AddTaskAsync(_board.DefaultList.Id, "Trip");
+        var attachment = _taskFiles!.Import(task.Id, source, Start.AddMinutes(5));
+        await _board.UpdateTaskAsync(task.Id, t => t.Attachments.Add(attachment));
+        await _engine.SyncNowAsync();
+        Assert.True(_cloud.Files.ContainsKey(attachment.Sha256!));
+        Assert.Equal(0, asked);
+    }
+
+    [Fact]
+    public async Task A_refused_file_shows_why_and_retry_uploads_it_when_the_server_accepts()
+    {
+        await Start_(withFiles: true);
+        var asked = 0;
+        _engine.LegacyTaskFilesWaiting += () => asked++;
+        await _engine.EnableAsync(Tenant);
+        var source = Path.Combine(Path.GetDirectoryName(_path)!, "big.pdf");
+        await File.WriteAllBytesAsync(source, Encoding.ASCII.GetBytes("%PDF-1.7 big"));
+        var task = await _board.AddTaskAsync(_board.DefaultList.Id, "Big");
+        var attachment = _taskFiles!.Import(task.Id, source, Start.AddMinutes(1));
+        await _board.UpdateTaskAsync(task.Id, t => t.Attachments.Add(attachment));
+        await _engine.WarmTaskFileStateAsync(); // the app does this at start
+        Assert.Equal(TaskFileTransferState.Queued, _engine.KnownTaskFileState(attachment)!.State);
+
+        _cloud.FileUploadStatus = HttpStatusCode.RequestEntityTooLarge;
+        await _engine.SyncNowAsync();
+        var refused = _engine.KnownTaskFileState(attachment)!;
+        Assert.Equal(TaskFileTransferState.Failed, refused.State);
+        Assert.Equal("A file can be at most 25 MB.", refused.Error);
+
+        _cloud.FileUploadStatus = HttpStatusCode.Created;
+        await _engine.RetryTaskFileAsync(task.Id, attachment.Sha256!);
+        Assert.True(_cloud.Files.ContainsKey(attachment.Sha256!));
+        Assert.Equal(TaskFileTransferState.Synced, _engine.KnownTaskFileState(attachment)!.State);
+        Assert.Equal(0, asked);
+    }
+
+    [Fact]
+    public async Task A_busy_server_keeps_the_file_and_the_task_queued()
+    {
+        await Start_(withFiles: true);
+        await _engine.EnableAsync(Tenant);
+        var source = Path.Combine(Path.GetDirectoryName(_path)!, "busy.pdf");
+        await File.WriteAllBytesAsync(source, Encoding.ASCII.GetBytes("%PDF-1.7 busy"));
+        var task = await _board.AddTaskAsync(_board.DefaultList.Id, "Busy");
+        var attachment = _taskFiles!.Import(task.Id, source, Start.AddMinutes(1));
+        await _board.UpdateTaskAsync(task.Id, t => t.Attachments.Add(attachment));
+        _cloud.FileUploadStatus = HttpStatusCode.ServiceUnavailable;
+        Assert.Equal(SyncState.ErrorRetryable, (await _engine.SyncNowAsync()).State);
+        Assert.Equal(TaskFileTransferState.Queued, _engine.KnownTaskFileState(attachment)!.State);
+        Assert.True(await _store.PendingCountAsync(CancellationToken.None) > 0);
+        _cloud.FileUploadStatus = HttpStatusCode.Created;
+        await _engine.SyncNowAsync();
+        Assert.True(_cloud.Files.ContainsKey(attachment.Sha256!));
     }
 
     [Fact]

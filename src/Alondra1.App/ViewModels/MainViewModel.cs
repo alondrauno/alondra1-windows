@@ -1923,22 +1923,8 @@ public sealed class AppServices
             try
             {
                 taskFiles.RemoveOrphans(board.Tasks);
-                // Files attached before attachments synced get their SHA-256 now, so other devices can fetch them.
-                foreach (var task in board.Tasks.Where(t => t.Attachments.Any(a => a.Sha256 is null && taskFiles.Resolve(a) is not null)).ToList())
-                {
-                    await board.UpdateTaskAsync(task.Id, t =>
-                    {
-                        foreach (var a in t.Attachments.Where(a => a.Sha256 is null))
-                        {
-                            if (taskFiles.Resolve(a) is { } path)
-                            {
-                                var (sha, head) = TaskFileStore.Hash(path);
-                                a.Sha256 = sha;
-                                a.MediaType ??= TaskFileStore.Sniff(head);
-                            }
-                        }
-                    }, "Prepare files for sync", undoable: false).ConfigureAwait(false);
-                }
+                // Files attached before attachments synced are hashed (and uploaded) only after the user agrees
+                // (Dev-only spec WIN-02); see CloudController.ApplyLegacyTaskFilesChoiceAsync.
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

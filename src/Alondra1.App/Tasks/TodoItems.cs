@@ -127,6 +127,8 @@ public sealed class AttachmentVm
     /// <summary>Where the bytes are: "in the cloud", "not on this PC", "not synced: …", or empty when here.</summary>
     public string StatusText { get; init; } = "";
     public bool HasStatus => StatusText.Length > 0;
+    /// <summary>The upload was refused: offer Retry (Dev-only spec U9).</summary>
+    public bool CanRetry { get; init; }
     public override string ToString() => FileName + ", " + SizeText + (HasStatus ? ", " + StatusText : "");
 }
 

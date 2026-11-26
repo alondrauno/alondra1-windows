@@ -28,6 +28,8 @@ public sealed partial class CloudController : ObservableObject
         if (Engine is not null)
         {
             Engine.StatusChanged += _ => Raise();
+            // Asked after the sync run that found such files, never in the middle of it.
+            Engine.LegacyTaskFilesWaiting += () => Dispatcher.CurrentDispatcher.BeginInvoke(async () => await AskAboutLegacyTaskFilesAsync(), DispatcherPriority.ApplicationIdle);
             if (services.Tasks is not null)
                 services.Tasks.Changed += OnLocalChange;
         }
@@ -89,6 +91,7 @@ public sealed partial class CloudController : ObservableObject
         try
         {
             _enabled = await Engine.EnabledAsync();
+            await Engine.WarmTaskFileStateAsync();
             Raise();
             if (_enabled)
             {
@@ -160,6 +163,71 @@ public sealed partial class CloudController : ObservableObject
             _periodic.Start();
         Raise();
         return status;
+    }
+
+    private bool _asking;
+
+    /// <summary>
+    /// Files attached on this PC before Cloud Sync handled attachments stay here until the user agrees to upload them
+    /// (Dev-only spec WIN-02). Asked once; the answer is kept and can be changed on the Cloud page. Closing the
+    /// question keeps them on this PC.
+    /// </summary>
+    public async Task AskAboutLegacyTaskFilesAsync(bool again = false)
+    {
+        if (Engine is null || _asking)
+            return;
+        _asking = true;
+        try
+        {
+            if (!again && await Engine.LegacyTaskFilesChoiceAsync() is not null)
+                return;
+            var tasks = await Engine.LegacyTaskFileTasksAsync();
+            if (tasks.Count == 0 && !again)
+                return;
+            var files = tasks.Sum(t => t.Attachments.Count);
+            var answer = Dialogs.Alert(
+                $"Files attached to {tasks.Count} task(s) on this PC before Cloud Sync handled attachments (about {files} file(s)) are on this PC only.\n\n" +
+                "Upload them to your cloud space so your other devices can open them?\n\n" +
+                "Yes: upload existing attachments.\nNo: keep them on this PC (the tasks still sync, without these files).\n\n" +
+                "Files you attach from now on sync with Cloud Sync. You can change this later on the Cloud page.",
+                "Existing attachments", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
+            await ApplyLegacyTaskFilesChoiceAsync(answer == System.Windows.MessageBoxResult.Yes);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Legacy attachment question skipped: " + ex.Message);
+        }
+        finally
+        {
+            _asking = false;
+        }
+    }
+
+    public async Task ApplyLegacyTaskFilesChoiceAsync(bool upload)
+    {
+        if (Engine is null)
+            return;
+        await Engine.SetLegacyTaskFilesChoiceAsync(upload);
+        if (!upload || _services.Tasks is not { } board || _services.TaskFiles is not { } files)
+            return;
+        // Hash what has no hash yet and re-queue the tasks, so the files go up before the tasks on the next sync.
+        foreach (var task in await Engine.LegacyTaskFileTasksAsync())
+        {
+            await board.UpdateTaskAsync(task.Id, t =>
+            {
+                foreach (var a in t.Attachments.Where(a => a.Sha256 is null))
+                {
+                    if (files.Resolve(a) is { } path)
+                    {
+                        var (sha, head) = Alondra1.Persistence.TaskFileStore.Hash(path);
+                        a.Sha256 = sha;
+                        a.MediaType ??= Alondra1.Persistence.TaskFileStore.Sniff(head);
+                    }
+                }
+            }, "Prepare files for sync", undoable: false);
+        }
+        if (_enabled)
+            await SyncAsync();
     }
 
     public async Task PauseAsync()

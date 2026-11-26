@@ -849,6 +849,9 @@
                   <DataTemplate DataType="{x:Type local:AttachmentVm}">
                     <DockPanel Margin="0,1">
                       <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="28" Height="28" Tag="{Binding Id}" Click="RemoveAttachment_Click" AutomationProperties.Name="Remove file"><ui:Alondra1Icon Kind="Close" IconSize="14"/></Button>
+                      <Button DockPanel.Dock="Right" Style="{StaticResource QuietButton}" Tag="{Binding Id}" Click="RetryAttachment_Click" Content="Retry"
+                              Visibility="{Binding CanRetry, Converter={StaticResource BoolVis}}" AutomationProperties.Name="{Binding FileName, StringFormat='Retry uploading {0}'}"/>
+                      <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="28" Height="28" Tag="{Binding Id}" Click="SaveAttachment_Click" AutomationProperties.Name="{Binding FileName, StringFormat='Save {0} as'}" ToolTip="Save as…"><ui:Alondra1Icon Kind="Download" IconSize="14"/></Button>
                       <Button Style="{StaticResource QuietButton}" HorizontalContentAlignment="Left" Tag="{Binding Id}" Click="OpenAttachment_Click"
                               AutomationProperties.Name="{Binding FileName, StringFormat='Open {0}'}">
                         <StackPanel Orientation="Horizontal">

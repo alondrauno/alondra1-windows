@@ -32,6 +32,16 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
     public SyncStatus Status { get; private set; } = new(SyncState.LocalOnly);
     public event Action<SyncStatus>? StatusChanged;
 
+    /// <summary>
+    /// Raised (once per run) when files attached on this PC before Cloud Sync handled attachments are waiting for the
+    /// user's decision (Dev-only spec WIN-02). Until <see cref="SetLegacyTaskFilesChoiceAsync"/> says upload, they stay
+    /// on this PC: not uploaded, and their hash is not sent, so no other device is told they exist in the cloud.
+    /// </summary>
+    public event Action? LegacyTaskFilesWaiting;
+
+    private const string LegacyChoiceKey = "task_files_legacy";
+    private const string FilesSinceKey = "task_files_since";
+
     private void Set(SyncState state, string? message = null, bool synced = false)
     {
         Status = new SyncStatus(state, synced ? clock.UtcNow : Status.LastSynced, message);
@@ -60,6 +70,9 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             await store.SetMetaAsync("tenant", tenantId, ct).ConfigureAwait(true);
             await store.SetMetaAsync("bound_user", await store.GetMetaAsync("user_id", ct).ConfigureAwait(true), ct).ConfigureAwait(true);
             await store.SetMetaAsync("sync_enabled", "1", ct).ConfigureAwait(true);
+            FilesSyncOn = true;
+            if (taskFiles is not null)
+                await FilesSinceAsync(ct).ConfigureAwait(true); // files attached before now need the user's consent to upload
             await store.SetRecordingAsync(true, ct).ConfigureAwait(true);
             await BootstrapAsync(tenantId, ct).ConfigureAwait(true);
         }
@@ -79,6 +92,7 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
     public async Task PauseAsync(CancellationToken ct = default)
     {
         await store.SetMetaAsync("sync_enabled", null, ct).ConfigureAwait(true);
+        FilesSyncOn = false;
         Set(SyncState.Paused);
     }
 
@@ -148,10 +162,16 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             else if (tenant is null)
                 Set(SyncState.ReadyOff);
             else if (!await EnabledAsync(ct).ConfigureAwait(true))
+            {
+                FilesSyncOn = false;
                 Set(SyncState.Paused);
+            }
             else
             {
                 Set(SyncState.Syncing);
+                FilesSyncOn = true;
+                if (taskFiles is not null)
+                    await FilesSinceAsync(ct).ConfigureAwait(true);
                 await PushAsync(tenant, ct).ConfigureAwait(true);
                 await PullAsync(tenant, ct).ConfigureAwait(true);
                 await DownloadAssetsAsync(tenant, ct).ConfigureAwait(true);
@@ -289,11 +309,27 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             return;
         var uploaded = await ShaSetAsync("task_files_uploaded", ct).ConfigureAwait(true);
         var failed = await FailedTaskFilesAsync(ct).ConfigureAwait(true);
+        var since = await FilesSinceAsync(ct).ConfigureAwait(true);
+        var choice = await LegacyTaskFilesChoiceAsync(ct).ConfigureAwait(true);
         var changed = false;
         foreach (var node in list.OfType<JsonObject>())
         {
             var attachment = node.Deserialize<TaskAttachment>(Json);
-            if (attachment is null || !TaskAttachment.IsHash(attachment.Sha256) || uploaded.Contains(attachment.Sha256!))
+            if (attachment is null)
+                continue;
+            if (choice != true && IsLegacy(attachment, since, uploaded))
+            {
+                // Kept on this PC: the task syncs with the file's name and size only (relativePath is meaningless elsewhere).
+                node.Remove("sha256");
+                node.Remove("mediaType");
+                if (choice is null && !_legacyRaised)
+                {
+                    _legacyRaised = true;
+                    LegacyTaskFilesWaiting?.Invoke();
+                }
+                continue;
+            }
+            if (!TaskAttachment.IsHash(attachment.Sha256) || uploaded.Contains(attachment.Sha256!))
                 continue;
             if (taskFiles.Resolve(attachment) is not { } path)
                 continue;
@@ -330,15 +366,117 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
         }
     }
 
-    private async Task<HashSet<string>> ShaSetAsync(string key, CancellationToken ct) =>
-        await store.GetMetaAsync(key, ct).ConfigureAwait(true) is { } json && JsonNode.Parse(json) is JsonArray a
+    private bool _legacyRaised;
+
+    /// <summary>
+    /// A file attached on this PC (its own copy, not one downloaded from the cloud) before this profile's Cloud Sync
+    /// first handled attachments, and not already in cloud storage.
+    /// </summary>
+    private bool IsLegacy(TaskAttachment attachment, DateTimeOffset? since, HashSet<string> uploaded) =>
+        since is { } start && attachment.AddedUtc < start && !string.IsNullOrEmpty(attachment.RelativePath)
+        && !(TaskAttachment.IsHash(attachment.Sha256) && uploaded.Contains(attachment.Sha256!))
+        && taskFiles?.Resolve(attachment) is not null;
+
+    private async Task<DateTimeOffset?> FilesSinceAsync(CancellationToken ct)
+    {
+        if (await store.GetMetaAsync(FilesSinceKey, ct).ConfigureAwait(true) is { } text
+            && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var since))
+            return _sinceSeen = since;
+        var now = clock.UtcNow;
+        await store.SetMetaAsync(FilesSinceKey, now.ToString("O", System.Globalization.CultureInfo.InvariantCulture), ct).ConfigureAwait(true);
+        return _sinceSeen = now;
+    }
+
+    /// <summary>The user's decision about files attached before Cloud Sync handled attachments: true upload, false keep on this PC, null not asked yet (kept).</summary>
+    public async Task<bool?> LegacyTaskFilesChoiceAsync(CancellationToken ct = default) =>
+        _choiceSeen = await store.GetMetaAsync(LegacyChoiceKey, ct).ConfigureAwait(true) switch { "upload" => true, "keep" => false, _ => null };
+
+    /// <summary>Records the decision. Choosing upload re-queues the tasks that list such files, so they go up on the next sync.</summary>
+    public async Task SetLegacyTaskFilesChoiceAsync(bool upload, CancellationToken ct = default)
+    {
+        await store.SetMetaAsync(LegacyChoiceKey, upload ? "upload" : "keep", ct).ConfigureAwait(true);
+        _choiceSeen = upload;
+        _legacyRaised = false;
+    }
+
+    /// <summary>Tasks with files that the decision is about (for the prompt's wording and for re-queueing).</summary>
+    public async Task<IReadOnlyList<TodoTask>> LegacyTaskFileTasksAsync(CancellationToken ct = default)
+    {
+        if (taskFiles is null)
+            return [];
+        var since = await FilesSinceAsync(ct).ConfigureAwait(true);
+        var uploaded = await ShaSetAsync("task_files_uploaded", ct).ConfigureAwait(true);
+        return board.Tasks.Where(t => t.Attachments.Any(a => IsLegacy(a, since, uploaded))).ToList();
+    }
+
+    private async Task<HashSet<string>> ShaSetAsync(string key, CancellationToken ct)
+    {
+        var set = await store.GetMetaAsync(key, ct).ConfigureAwait(true) is { } json && JsonNode.Parse(json) is JsonArray a
             ? a.Select(n => n?.GetValue<string>()).OfType<string>().ToHashSet()
             : [];
+        if (key == "task_files_uploaded")
+            _uploadedSeen = set;
+        return set;
+    }
 
-    private async Task<Dictionary<string, string>> FailedTaskFilesAsync(CancellationToken ct) =>
-        await store.GetMetaAsync("task_files_failed", ct).ConfigureAwait(true) is { } json
+    private async Task<Dictionary<string, string>> FailedTaskFilesAsync(CancellationToken ct)
+    {
+        var failed = await store.GetMetaAsync("task_files_failed", ct).ConfigureAwait(true) is { } json
             ? JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? []
             : [];
+        _failedSeen = failed;
+        return failed;
+    }
+
+    // Last known upload state, so the task details can show it without waiting (Dev-only spec U9).
+    private HashSet<string>? _uploadedSeen;
+    private Dictionary<string, string>? _failedSeen;
+    private DateTimeOffset? _sinceSeen;
+    private bool? _choiceSeen;
+
+    /// <summary>Cloud Sync is on for this profile (as of the last enable, pause or sync).</summary>
+    public bool FilesSyncOn { get; private set; }
+
+    /// <summary>The transfer state of a file on this PC, from what this engine last read; null before the first read.</summary>
+    public TaskFileTransfer? KnownTaskFileState(TaskAttachment attachment)
+    {
+        if (_uploadedSeen is null || !TaskAttachment.IsHash(attachment.Sha256))
+            return null;
+        var sha = attachment.Sha256!;
+        if (_uploadedSeen.Contains(sha))
+            return new TaskFileTransfer(TaskFileTransferState.Synced, null);
+        if (_failedSeen?.GetValueOrDefault(sha) is { } error)
+            return new TaskFileTransfer(TaskFileTransferState.Failed, error);
+        if (_choiceSeen != true && _sinceSeen is { } since && attachment.AddedUtc < since && !string.IsNullOrEmpty(attachment.RelativePath))
+            return new TaskFileTransfer(TaskFileTransferState.KeptOnThisPc, null);
+        return new TaskFileTransfer(TaskFileTransferState.Queued, null);
+    }
+
+    /// <summary>Reads the upload state once, so <see cref="KnownTaskFileState"/> has something to show at start.</summary>
+    public async Task WarmTaskFileStateAsync(CancellationToken ct = default)
+    {
+        FilesSyncOn = await EnabledAsync(ct).ConfigureAwait(true);
+        await ShaSetAsync("task_files_uploaded", ct).ConfigureAwait(true);
+        await FailedTaskFilesAsync(ct).ConfigureAwait(true);
+        _choiceSeen = await LegacyTaskFilesChoiceAsync(ct).ConfigureAwait(true);
+        if (await store.GetMetaAsync(FilesSinceKey, ct).ConfigureAwait(true) is { } text
+            && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var since))
+            _sinceSeen = since;
+    }
+
+    /// <summary>
+    /// Retry for a file whose upload was refused (Dev-only spec U9): forget the error, queue the task that lists it again
+    /// (its files go up before it is pushed) and sync now.
+    /// </summary>
+    public async Task<SyncStatus> RetryTaskFileAsync(string taskId, string sha256, CancellationToken ct = default)
+    {
+        var failed = await FailedTaskFilesAsync(ct).ConfigureAwait(true);
+        if (failed.Remove(sha256))
+            await store.SetMetaAsync("task_files_failed", failed.Count == 0 ? null : JsonSerializer.Serialize(failed), ct).ConfigureAwait(true);
+        _failedSeen = failed;
+        await board.UpdateTaskAsync(taskId, _ => { }, "Retry file", undoable: false).ConfigureAwait(true);
+        return await SyncNowAsync(ct).ConfigureAwait(true);
+    }
 
     /// <summary>Whether the file is known to be in cloud storage, and why its upload failed (null when it did not).</summary>
     public async Task<(bool Uploaded, string? Error)> TaskFileStateAsync(string sha256, CancellationToken ct = default)
@@ -535,20 +673,46 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
     /// <summary>
     /// Both sides changed. The cloud version takes the original id (so all devices converge); the local version is kept
     /// as a new task marked "(conflict copy)" and queued. The user sees it under Sync issues. Nothing is lost.
+    /// Attachments are merged three-way on the original task instead (Dev-only spec BE-03): a file removed here is not
+    /// brought back, files added on either side are kept, and the copy carries no attachments, so files are never
+    /// duplicated. When only attachments differ, the merge is all there is: no copy and no sync issue.
     /// </summary>
     private async Task KeepBothAsync(OutboxItem item, JsonObject? current, bool currentDeleted, CancellationToken ct)
     {
         var title = TitleOf(item.EntityType, item.EntityId);
+        var report = true;
+        JsonArray? mergedFiles = null;
         if (item.EntityType == CloudKinds.Task && board.FindTask(item.EntityId) is { } mine)
         {
-            var copy = await board.AddTaskAsync(mine.ListId, mine.Title + " (conflict copy)", t =>
+            var serverJson = (await store.VersionsAsync(ct).ConfigureAwait(true)).GetValueOrDefault((CloudKinds.Task, item.EntityId))?.ServerJson;
+            var localJson = await CurrentAsync(CloudKinds.Task, item.EntityId, ct).ConfigureAwait(true);
+            // Compared through the model, so formatting differences (Z vs +00:00, absent vs empty) are not edits.
+            var baseTask = serverJson is null ? null : JsonSerializer.Deserialize<TodoTask>(serverJson, Json);
+            var otherChanges = baseTask is null || OtherThanAttachments((JsonObject)JsonSerializer.SerializeToNode(baseTask, Json)!, localJson!);
+            var remoteFiles = current?[item.EntityType]?["attachments"] as JsonArray;
+            var remoteExists = current is not null && !currentDeleted;
+            if (remoteExists)
             {
-                t.Notes = mine.Notes; t.Important = mine.Important; t.Completed = mine.Completed; t.DueDate = mine.DueDate; t.DueTime = mine.DueTime;
-                t.MyDayDate = mine.MyDayDate; t.StartDate = mine.StartDate; t.Recurrence = mine.Recurrence;
-                t.Subtasks = mine.Subtasks.Select(s => s.Clone()).ToList();
-                t.Reminders = mine.Reminders.Select(r => new TaskReminder { At = r.At }).ToList();
-            }).ConfigureAwait(true);
-            _ = copy;
+                var baseFiles = serverJson is null ? null : JsonNode.Parse(serverJson)?["attachments"] as JsonArray;
+                mergedFiles = AttachmentMerge.Merge(baseFiles, localJson!["attachments"] as JsonArray, remoteFiles);
+                if (AttachmentMerge.SameIds(mergedFiles, remoteFiles))
+                    mergedFiles = null;
+            }
+
+            report = !remoteExists || otherChanges;
+            if (report)
+            {
+                await board.AddTaskAsync(mine.ListId, mine.Title + " (conflict copy)", t =>
+                {
+                    t.Notes = mine.Notes; t.Important = mine.Important; t.Completed = mine.Completed; t.DueDate = mine.DueDate; t.DueTime = mine.DueTime;
+                    t.MyDayDate = mine.MyDayDate; t.StartDate = mine.StartDate; t.Recurrence = mine.Recurrence;
+                    t.Subtasks = mine.Subtasks.Select(s => s.Clone()).ToList();
+                    t.Reminders = mine.Reminders.Select(r => new TaskReminder { At = r.At }).ToList();
+                    // The original is gone on the server: the copy is where this PC's files stay listed.
+                    if (!remoteExists)
+                        t.Attachments = mine.Attachments.Select(a => a.Clone()).ToList();
+                }).ConfigureAwait(true);
+            }
         }
 
         string? copyId = null;
@@ -559,11 +723,22 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             await ApplyAsync([new JsonObject { ["resource_type"] = item.EntityType, ["action"] = "upsert", ["resource_id"] = item.EntityId, ["record"] = current.DeepClone() }], null, ct, force: true).ConfigureAwait(true);
         if (currentDeleted)
             await ApplyAsync([new JsonObject { ["resource_type"] = item.EntityType, ["action"] = "delete", ["resource_id"] = item.EntityId }], null, ct, force: true).ConfigureAwait(true);
-        await store.AddIssueAsync(item.EntityType, item.EntityId, title,
-            currentDeleted ? "It was deleted on another device while you edited it here. Your version was kept as a conflict copy."
-                : "It was changed on another device too. The other version is shown; yours was kept as a conflict copy.",
-            clock.UtcNow, ct, copyId).ConfigureAwait(true);
+        if (mergedFiles is not null)
+        {
+            var files = mergedFiles.Deserialize<List<TaskAttachment>>(Json) ?? [];
+            await board.UpdateTaskAsync(item.EntityId, t => t.Attachments = files, "Merge files", undoable: false).ConfigureAwait(true);
+        }
+        if (report)
+            await store.AddIssueAsync(item.EntityType, item.EntityId, title,
+                currentDeleted ? "It was deleted on another device while you edited it here. Your version was kept as a conflict copy."
+                    : "It was changed on another device too. The other version is shown; yours was kept as a conflict copy.",
+                clock.UtcNow, ct, copyId).ConfigureAwait(true);
     }
+
+    /// <summary>True when the two task objects differ in more than attachments (and the modified time, which every edit changes).</summary>
+    private static bool OtherThanAttachments(JsonObject a, JsonObject b) =>
+        a.Select(p => p.Key).Union(b.Select(p => p.Key)).Where(k => k is not ("attachments" or "modifiedUtc"))
+            .Any(k => !JsonNode.DeepEquals(a[k], b[k]));
 
     // ------------------------------------------------------------------ pull
 

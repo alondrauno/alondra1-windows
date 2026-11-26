@@ -33,8 +33,15 @@ Everything is in **Settings → Cloud**. When Cloud Sync is on, a status button 
   - Access errors (`TENANT_NOT_FOUND`) turn Cloud Sync off and keep the data.
   - Network errors show the "Offline" state.
 - **Secrets.** The refresh token is stored with DPAPI (`secrets\alondra1-cloud`), never in todo.db, config.json or logs. The access token is kept in memory only.
+- **Task attachments.**
+  - Files attached to a task are uploaded before the task (by SHA-256, once each).
+  - Other devices' files download when opened, after a hash check, and are kept as `task-files\cloud\<sha>`.
+  - Files attached before Cloud Sync handled attachments stay on this PC until the user agrees to upload them. This is asked once and can be changed on the Cloud page. Until then, their hash is not sent.
+  - Opening a file never runs it. Only passive types whose bytes match their extension open, from a copy carrying the Mark of the Web; anything else is Save as only.
+  - Upload failures show the reason with **Retry**. A busy server (`503`/`429`) keeps the file and the task queued.
+  - On a conflict, attachments merge three-way; see the backend `contract/fixtures/todo-v1/merge-attachments.json`.
 - **Not synced:**
-  - Mail, contacts, task attachments and per-device reminder delivery state.
+  - Mail, contacts and per-device reminder delivery state.
   - Calendar events: the Windows Calendar shows the mail accounts' calendars, so the cloud events written by the Android app are not shown on Windows yet.
   - Data from the mail providers (account tasks, provider notes, contacts).
 - **Payments.** Payment is a placeholder: the price list comes from the backend catalog, and upgrades will open from the account page. See alondra1-backend `docs/BILLING_SPEC.md`.

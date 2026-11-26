@@ -40,6 +40,9 @@ public sealed partial class TodoViewModel : ObservableObject
         _toastTimer.Tick += (_, _) => { _toastTimer.Stop(); ToastText = ""; OnPropertyChanged(nameof(ToastText)); OnPropertyChanged(nameof(HasToast)); };
         if (_board is not null)
             _board.Changed += () => Refresh();
+        // Upload states change while syncing without a task change: refresh the open details then.
+        if (services.CloudSync is { } engine)
+            engine.StatusChanged += s => { if (_detailId is not null && s.State is not Alondra1.Core.Cloud.SyncState.Syncing) RebuildDetail(); };
 
         QuickAddCommand = new AsyncRelayCommand(QuickAddAsync);
         ToggleCompleteCommand = new AsyncRelayCommand<TaskItemVm>(async item => { if (item is not null) await Run(() => _board!.SetCompletedAsync([item.Id], !item.Completed), item.Completed ? "Task reopened" : "Task completed"); });
@@ -614,16 +617,29 @@ public sealed partial class TodoViewModel : ObservableObject
         Sync(Attachments, task.Attachments.Select(item =>
         {
             var here = _services.TaskFiles?.Resolve(item) is not null;
-            var cloud = TaskAttachment.IsHash(item.Sha256) && _services.CloudSync is not null;
+            var engine = _services.CloudSync;
+            var cloud = TaskAttachment.IsHash(item.Sha256) && engine is not null;
+            // Never claim a file is backed up while it is only here (Dev-only spec U9).
+            var transfer = here && engine is { FilesSyncOn: true } ? engine.KnownTaskFileState(item) : null;
+            var status = !here ? (cloud ? "in the cloud · click to download" : "not on this PC")
+                : engine is not { FilesSyncOn: true } ? "on this PC only"
+                : transfer?.State switch
+                {
+                    Alondra1.Core.Cloud.TaskFileTransferState.Synced => "synced",
+                    Alondra1.Core.Cloud.TaskFileTransferState.Failed => "not synced: " + transfer.Error,
+                    Alondra1.Core.Cloud.TaskFileTransferState.KeptOnThisPc => "on this PC only",
+                    _ => "waiting to sync",
+                };
             return new AttachmentVm
             {
                 Id = item.Id,
                 FileName = item.FileName,
                 SizeText = TodoFormat.Size(item.Size),
                 Missing = !here && !cloud,
-                StatusText = here ? "" : cloud ? "in the cloud · click to download" : "not on this PC",
+                StatusText = status,
+                CanRetry = transfer?.State == Alondra1.Core.Cloud.TaskFileTransferState.Failed,
             };
-        }).ToList(), (a, b) => a.Id == b.Id && a.StatusText == b.StatusText);
+        }).ToList(), (a, b) => a.Id == b.Id && a.StatusText == b.StatusText && a.CanRetry == b.CanRetry);
         RaiseDetail();
     }
 
@@ -854,11 +870,23 @@ public sealed partial class TodoViewModel : ObservableObject
         if (_detailId is not { } id || _services.TaskFiles is not { } files)
             return;
         var added = new List<TaskAttachment>();
+        // With Cloud Sync on, the server's limits apply (GET /v1/task-files/limits): a task the server would refuse never
+        // leaves this PC, and the user hears about a file that is too large for the cloud now, not after a transfer.
+        var engine = _services.CloudSync is { FilesSyncOn: true } on ? on : null;
+        var existing = _board!.FindTask(id)?.Attachments.Count ?? 0;
         foreach (var path in paths)
         {
+            if (engine is not null && existing + added.Count >= engine.MaxTaskFilesPerTask)
+            {
+                Error($"A task can have at most {engine.MaxTaskFilesPerTask} files with Cloud Sync on. {Path.GetFileName(path)} was not attached.");
+                continue;
+            }
             try
             {
-                added.Add(files.Import(id, path, _board!.Now));
+                var attachment = files.Import(id, path, _board!.Now);
+                if (engine is not null && attachment.Size > engine.MaxTaskFileBytes)
+                    Error($"{attachment.FileName} is larger than the cloud limit ({engine.MaxTaskFileBytes >> 20} MB). It stays on this PC and won't sync to your other devices.");
+                added.Add(attachment);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -909,6 +937,69 @@ public sealed partial class TodoViewModel : ObservableObject
 
         RebuildDetail();
         return ResolveAttachment(attachmentId);
+    }
+
+    /// <summary>What opening an attachment may do (Dev-only spec WIN-01): a staged copy to open, or a file to offer as Save as… only.</summary>
+    public sealed record AttachmentHandoff(TaskAttachment Attachment, string Source, bool FromCloud, AttachmentOpenPolicy Policy);
+
+    /// <summary>Gets the attachment's bytes here (downloading them when needed) and decides whether they may be opened.</summary>
+    public async Task<AttachmentHandoff?> PrepareAttachmentAsync(string attachmentId)
+    {
+        var path = await FetchAttachmentAsync(attachmentId);
+        if (path is null || _services.TaskFiles is not { } files || _detailId is not { } id
+            || _board!.FindTask(id)?.Attachments.FirstOrDefault(item => item.Id == attachmentId) is not { } attachment)
+            return null;
+        var policy = AttachmentSafety.PolicyFor(attachment.FileName, TaskFileStore.Head(path));
+        return new AttachmentHandoff(attachment, path, files.IsFromCloud(attachment, path), policy);
+    }
+
+    /// <summary>A copy for Windows to open, or null (with the reason shown) when it must be saved instead.</summary>
+    public string? StageAttachment(AttachmentHandoff handoff)
+    {
+        try
+        {
+            if (_services.TaskFiles?.StageForOpen(handoff.Attachment, handoff.Source, handoff.FromCloud) is { } staged)
+                return staged;
+            Error("This drive can't mark the downloaded file as coming from the internet, so Alondra1 won't open it. Use Save as instead.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Error("The file could not be prepared: " + ex.Message);
+        }
+        return null;
+    }
+
+    public void SaveAttachmentCopy(AttachmentHandoff handoff, string target)
+    {
+        try
+        {
+            if (TaskFileStore.SaveCopy(handoff.Source, target, handoff.FromCloud))
+                Toast(handoff.Policy == AttachmentOpenPolicy.SaveOnly
+                    ? "Saved. Alondra1 doesn't open programs, scripts or unrecognised files itself; check the file before you open it."
+                    : "Saved.");
+            else
+                Error("Saved, but this drive can't mark the file as coming from the internet. Check it before you open it.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Error("The file could not be saved: " + ex.Message);
+        }
+    }
+
+    public async Task RetryAttachmentAsync(string attachmentId)
+    {
+        if (_detailId is not { } id || _services.CloudSync is not { } engine
+            || _board!.FindTask(id)?.Attachments.FirstOrDefault(item => item.Id == attachmentId) is not { Sha256: { } sha } attachment)
+            return;
+        var status = await engine.RetryTaskFileAsync(id, sha);
+        RebuildDetail();
+        var after = engine.KnownTaskFileState(attachment);
+        if (after?.State == Alondra1.Core.Cloud.TaskFileTransferState.Synced)
+            Toast(attachment.FileName + " synced");
+        else if (after?.State == Alondra1.Core.Cloud.TaskFileTransferState.Failed)
+            Error("Still not synced: " + after.Error);
+        else
+            Toast(status.Message ?? "Will retry when the cloud can be reached.");
     }
 
     public async Task RemoveAttachmentAsync(string attachmentId)

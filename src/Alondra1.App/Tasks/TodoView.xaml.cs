@@ -884,19 +884,47 @@ public partial class TodoView : UserControl
     {
         if (Model is not { } model || sender is not FrameworkElement { Tag: string id })
             return;
-        // Added on another device: downloaded from the cloud first.
-        var path = await model.FetchAttachmentAsync(id);
-        if (path is null)
+        // Added on another device: downloaded from the cloud first. Only passive files whose bytes match their type are
+        // opened, from a staged copy (Dev-only spec WIN-01); programs, scripts and unknown types are offered as Save as.
+        if (await model.PrepareAttachmentAsync(id) is not { } handoff)
             return;
+        if (handoff.Policy != AttachmentOpenPolicy.Open)
+        {
+            model.Error("For your safety, Alondra1 doesn't open programs, scripts, shortcuts or unrecognised files. Save it and check it first.");
+            SaveAttachment(model, handoff);
+            return;
+        }
 
+        if (model.StageAttachment(handoff) is not { } staged)
+            return;
         try
         {
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(staged) { UseShellExecute = true });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
         {
             model.Error("Windows could not open the file: " + ex.Message);
         }
+    }
+
+    private async void RetryAttachment_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is { } model && sender is FrameworkElement { Tag: string id })
+            await model.RetryAttachmentAsync(id);
+    }
+
+    private async void SaveAttachment_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is { } model && sender is FrameworkElement { Tag: string id } && await model.PrepareAttachmentAsync(id) is { } handoff)
+            SaveAttachment(model, handoff);
+    }
+
+    private void SaveAttachment(TodoViewModel model, TodoViewModel.AttachmentHandoff handoff)
+    {
+        var name = AttachmentSafety.CleanName(handoff.Attachment.FileName);
+        var dialog = new SaveFileDialog { Title = "Save file", FileName = name, Filter = "All files|*.*", AddExtension = false, OverwritePrompt = true };
+        if (dialog.ShowDialog(Owner) == true)
+            model.SaveAttachmentCopy(handoff, dialog.FileName);
     }
 
     private async void RemoveAttachment_Click(object sender, RoutedEventArgs e)

@@ -234,7 +234,7 @@ Code: domain `Core/Tasks/` (`TaskBoard` = single writer, `TodoModels`, `Recurren
 | TODO-TASK-03 | Steps (subtasks) with own completion and a progress bar | Done | |
 | TODO-TASK-04 | Turn a step into a task | Done | |
 | TODO-TASK-05 | Reorder steps with up and down buttons | Partial | No drag and drop for steps. |
-| TODO-TASK-06 | Attach files (copied into `task-files\`), drag files onto the details pane | Done | Not synced. |
+| TODO-TASK-06 | Attach files (copied into `task-files\`), drag files onto the details pane; with Cloud Sync, files go up before the task and other devices' files download when opened; only passive files whose bytes match their type open (from a marked copy), everything else is Save as only; files attached before Cloud Sync handled attachments upload only after consent; status per file with Retry; conflicts merge attachments three-way | Done | `Core/Tasks/AttachmentSafety.cs`, `Persistence/TaskFileStore.cs`, `Core/Cloud/CloudSyncEngine.cs`, `Core/Cloud/AttachmentMerge.cs`. |
 | TODO-TASK-07 | Duplicate a task | Done | |
 | TODO-TASK-08 | Move between lists (details, context menu, bulk bar, drag) | Done | |
 | TODO-TASK-09 | Collapsible details pane (Esc), remembered | Done | |

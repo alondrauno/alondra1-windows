@@ -1,0 +1,61 @@
+{
+  "description": "Three-way merge of a task's attachments when a push conflicts (Dev-only spec BE-03 / review U4). base = the last server copy this device saw, local = this device's attachments, remote = the server's current attachments. Result = remote, minus attachments this device removed since base, plus attachments this device added since base that the remote does not already list (same id or same sha256). Removals on either side are intentional and never reversed; a removed attachment never comes back through a conflict copy (conflict copies carry no attachments while the original still exists).",
+  "cases": [
+    {
+      "name": "local removal survives a remote title edit",
+      "base": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }, { "id": "a2", "sha256": "2222222222222222222222222222222222222222222222222222222222222222" }],
+      "local": [{ "id": "a2", "sha256": "2222222222222222222222222222222222222222222222222222222222222222" }],
+      "remote": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }, { "id": "a2", "sha256": "2222222222222222222222222222222222222222222222222222222222222222" }],
+      "expected": ["a2"]
+    },
+    {
+      "name": "additions on both sides are kept",
+      "base": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }],
+      "local": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }, { "id": "l1", "sha256": "3333333333333333333333333333333333333333333333333333333333333333" }],
+      "remote": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }, { "id": "r1", "sha256": "4444444444444444444444444444444444444444444444444444444444444444" }],
+      "expected": ["a1", "r1", "l1"]
+    },
+    {
+      "name": "remote removal is not undone by an unchanged local list",
+      "base": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }, { "id": "a2", "sha256": "2222222222222222222222222222222222222222222222222222222222222222" }],
+      "local": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }, { "id": "a2", "sha256": "2222222222222222222222222222222222222222222222222222222222222222" }],
+      "remote": [{ "id": "a2", "sha256": "2222222222222222222222222222222222222222222222222222222222222222" }],
+      "expected": ["a2"]
+    },
+    {
+      "name": "both removed the same attachment",
+      "base": [{ "id": "a1", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }],
+      "local": [],
+      "remote": [],
+      "expected": []
+    },
+    {
+      "name": "local removal wins over a remote edit of the same attachment",
+      "base": [{ "id": "a1", "fileName": "scan.pdf", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }],
+      "local": [],
+      "remote": [{ "id": "a1", "fileName": "scan (renamed).pdf", "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }],
+      "expected": []
+    },
+    {
+      "name": "the same file added on both sides is listed once",
+      "base": [],
+      "local": [{ "id": "l1", "sha256": "5555555555555555555555555555555555555555555555555555555555555555" }],
+      "remote": [{ "id": "r1", "sha256": "5555555555555555555555555555555555555555555555555555555555555555" }],
+      "expected": ["r1"]
+    },
+    {
+      "name": "no base (never synced): local additions are added to remote",
+      "base": null,
+      "local": [{ "id": "l1", "sha256": "6666666666666666666666666666666666666666666666666666666666666666" }],
+      "remote": [{ "id": "r1", "sha256": "7777777777777777777777777777777777777777777777777777777777777777" }],
+      "expected": ["r1", "l1"]
+    },
+    {
+      "name": "attachments known only on the Windows PC (no hash) merge by id",
+      "base": [{ "id": "w1", "relativePath": "t/a.docx" }],
+      "local": [{ "id": "w1", "relativePath": "t/a.docx" }, { "id": "w2", "relativePath": "t/b.docx" }],
+      "remote": [{ "id": "w1", "relativePath": "t/a.docx" }],
+      "expected": ["w1", "w2"]
+    }
+  ]
+}

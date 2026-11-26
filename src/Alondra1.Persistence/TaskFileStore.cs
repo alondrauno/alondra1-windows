@@ -96,6 +96,60 @@ public sealed class TaskFileStore : ITaskFiles
         return TaskAttachment.IsHash(attachment.Sha256) && File.Exists(CloudPath(attachment.Sha256!)) ? CloudPath(attachment.Sha256!) : null;
     }
 
+    /// <summary>True when <paramref name="path"/> is a copy downloaded from cloud storage (not a file added on this PC).</summary>
+    public bool IsFromCloud(TaskAttachment attachment, string path) =>
+        TaskAttachment.IsHash(attachment.Sha256) && string.Equals(Path.GetFullPath(path), Path.GetFullPath(CloudPath(attachment.Sha256!)), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The first bytes of a stored file, enough for <see cref="AttachmentSafety.PolicyFor"/>.</summary>
+    public static byte[] Head(string path, int count = 512)
+    {
+        using var stream = File.OpenRead(path);
+        var head = new byte[count];
+        var read = stream.ReadAtLeast(head, count, throwOnEndOfStream: false);
+        return head[..read];
+    }
+
+    /// <summary>
+    /// Copies a stored file to task-files\open\&lt;attachment id&gt;\&lt;clean name&gt; for Windows to open: the stored file
+    /// itself is never handed to the shell. A copy that came from the cloud gets the Mark of the Web (internet zone);
+    /// returns null when that mark cannot be written (the caller then offers Save as… only). Copies older than a day
+    /// are removed first.
+    /// </summary>
+    public string? StageForOpen(TaskAttachment attachment, string source, bool fromCloud)
+    {
+        var open = Path.Combine(_files.Root, "open");
+        if (Directory.Exists(open))
+        {
+            foreach (var old in Directory.EnumerateDirectories(open).Where(d => DateTime.UtcNow - Directory.GetLastWriteTimeUtc(d) > TimeSpan.FromDays(1)))
+            {
+                try { Directory.Delete(old, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        var folder = Path.Combine(open, SafeSegment(attachment.Id));
+        Directory.CreateDirectory(folder);
+        var target = Path.Combine(folder, AttachmentSafety.OpenName(attachment.FileName));
+        File.Copy(source, target, overwrite: true);
+        Directory.SetLastWriteTimeUtc(folder, DateTime.UtcNow);
+        if (fromCloud && !MarkOfTheWeb.Apply(target))
+        {
+            File.Delete(target);
+            return null;
+        }
+        return target;
+    }
+
+    /// <summary>Copies a stored file to where the user chose (Save as…), with the Mark of the Web when it came from the cloud. False when the mark could not be written.</summary>
+    public static bool SaveCopy(string source, string target, bool fromCloud)
+    {
+        File.Copy(source, target, overwrite: true);
+        return !fromCloud || MarkOfTheWeb.Apply(target);
+    }
+
+    // The open\ copies are rebuilt on demand; they are not task files and are cleaned by StageForOpen.
+    private bool IsStaging(string path) =>
+        path.StartsWith(Path.GetFullPath(Path.Combine(_files.Root, "open")) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Deletes stored files that no task refers to any more. Run once at startup, not on every change, so undo can restore attachments.</summary>
     public int RemoveOrphans(IEnumerable<TodoTask> tasks)
     {
@@ -111,7 +165,7 @@ public sealed class TaskFileStore : ITaskFiles
         var removed = 0;
         foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
         {
-            if (referenced.Contains(Path.GetFullPath(file)))
+            if (referenced.Contains(Path.GetFullPath(file)) || IsStaging(Path.GetFullPath(file)))
                 continue;
             try
             {

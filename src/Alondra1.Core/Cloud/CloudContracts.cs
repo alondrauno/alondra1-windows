@@ -67,3 +67,8 @@ public interface ICloudSyncStore
     Task<IReadOnlyList<SyncIssue>> IssuesAsync(CancellationToken cancellationToken);
     Task DismissIssueAsync(long id, CancellationToken cancellationToken);
 }
+
+/// <summary>Where a file attached on this PC is, for Cloud Sync (Dev-only spec U9; same meanings on every client).</summary>
+public enum TaskFileTransferState { Queued, Synced, Failed, KeptOnThisPc }
+
+public sealed record TaskFileTransfer(TaskFileTransferState State, string? Error);

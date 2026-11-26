@@ -110,6 +110,17 @@ public static class CloudDialogs
             page.Children.Add(Dialogs.ButtonRow(
                 Dialogs.Primary("Sync now", async () => { status.Text = "Syncing…"; await cloud.SyncAsync(); await Redraw(); }),
                 Dialogs.Button("Pause", async () => { await cloud.PauseAsync(); await Redraw(); })));
+            if (cloud.Engine is { } syncEngine)
+            {
+                var choice = await syncEngine.LegacyTaskFilesChoiceAsync();
+                page.Children.Add(Dialogs.Note(choice switch
+                {
+                    true => "Files attached before Cloud Sync handled attachments: uploaded to your cloud space.",
+                    false => "Files attached before Cloud Sync handled attachments: kept on this PC only.",
+                    _ => "Files attached before Cloud Sync handled attachments: on this PC only until you decide.",
+                }));
+                page.Children.Add(Dialogs.ButtonRow(Dialogs.Button("Existing attachments…", async () => { await cloud.AskAboutLegacyTaskFilesAsync(again: true); await Redraw(); })));
+            }
         }
 
         if (cloud.Store is { } store)
