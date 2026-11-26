@@ -2,7 +2,7 @@ name: release
 
 # Two builds from one commit (completion spec v1.1 §8.2, §10):
 #   - every push to main: a clearly dev-only setup (Alondra1 Dev: own AppId, data folder, dev endpoints), as a
-#     workflow artifact for testers; never published as a release.
+#     workflow artifact and on the rolling "dev-latest" prerelease (public Dev download, owner decision 2026-11-26).
 #   - tag vX.Y.Z (matching MyAppVersion): the prod setup is built and checked, then waits for the reviewers of the
 #     "prod" environment. Only the approved job gets the signing identity, signs exactly that build (its SHA-256 is
 #     checked first), verifies the signature and publishes the GitHub release with the checksum. A tag alone publishes
@@ -24,6 +24,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: test
     runs-on: windows-latest
+    permissions:
+      contents: write # the dev-latest prerelease
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,6 +47,21 @@ jobs:
             artifacts/Alondra1-dev-setup.exe
             artifacts/Alondra1-dev-setup.exe.sha256
           retention-days: 14
+      # https://github.com/<owner>/alondra1-windows/releases/download/dev-latest/Alondra1-dev-setup.exe always serves
+      # the newest Dev setup. Tags v* (prod) are separate and untouched.
+      - name: Publish to dev-latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/dev-latest" -f sha="$GITHUB_SHA" -F force=true >/dev/null 2>&1 || gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/dev-latest -f sha="$GITHUB_SHA" >/dev/null
+          notes="Alondra1 Dev for Windows, built from $GITHUB_SHA on $(date -u +%Y-%m-%d). Development and test version: it installs separately from Alondra1 (own data folder alondra1-dev under Local AppData) and talks to the Dev environment only. The setup is not code-signed yet, so Windows SmartScreen asks before running it (More info, Run anyway). SHA-256 in Alondra1-dev-setup.exe.sha256."
+          if gh release view dev-latest >/dev/null 2>&1; then
+            gh release edit dev-latest --prerelease --title "Alondra1 Dev (latest)" --notes "$notes"
+          else
+            gh release create dev-latest --prerelease --title "Alondra1 Dev (latest)" --notes "$notes" --verify-tag
+          fi
+          gh release upload dev-latest artifacts/Alondra1-dev-setup.exe artifacts/Alondra1-dev-setup.exe.sha256 --clobber
 
   prod-setup:
     if: startsWith(github.ref, 'refs/tags/v')
