@@ -236,11 +236,37 @@ public static class Dialogs
             })));
         }
 
+        // About: version, environment, diagnostics without personal data, and feedback (Dev-only spec §1.1 item 8).
+        var about = Page();
+        about.Children.Add(Title("About"));
+        var version = typeof(Dialogs).Assembly.GetName().Version?.ToString(3) ?? "?";
+        about.Children.Add(Note($"{Alondra1.Core.BuildEnvironment.DisplayName} {version} · {Alondra1.Core.Diagnostics.EnvironmentLabel}"));
+        var copied = Note("Version, environment and sync state. No email address, tasks, notes or mail.");
+        about.Children.Add(ButtonRow(Button("Copy diagnostics", async () =>
+        {
+            var cloud = model.Cloud;
+            var signedIn = cloud.Account is { } account && await account.IsSignedInAsync(CancellationToken.None);
+            var waiting = cloud.Store is { } store ? await store.PendingCountAsync(CancellationToken.None) : 0;
+            var status = cloud.Engine?.Status;
+            Clipboard.SetText(Alondra1.Core.Diagnostics.Text(new(version, Alondra1.Core.BuildEnvironment.Name,
+                Environment.OSVersion.VersionString, signedIn, cloud.IsEnabled, (status?.State ?? Alondra1.Core.Cloud.SyncState.LocalOnly).ToString(),
+                status?.LastSynced, waiting)));
+            copied.Text = "Copied. Paste them into your feedback.";
+        })));
+        about.Children.Add(copied);
+        if (Alondra1.Core.Diagnostics.FeedbackUrl is { Length: > 0 } feedback)
+        {
+            about.Children.Add(ButtonRow(Button("Send feedback", () =>
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(feedback) { UseShellExecute = true }))));
+            about.Children.Add(Note("Opens the public feedback page on GitHub. Never include personal data or sign-in codes."));
+        }
+
         // Layout: section list on the left, the chosen section on the right; only the section scrolls.
         var pages = new (string Name, string Icon, UIElement Page)[]
         {
             ("Appearance", "Settings", appearance), ("Background", "Image", backgroundPage), ("Mail", "Mail", mail), ("Accounts", "Contacts", accounts),
             ("Connections", "Refresh", connections), ("Data", "Archive", data), ("Cloud", "Upload", Cloud.CloudDialogs.Page(model)),
+            ("About", "Chat", about),
         };
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });

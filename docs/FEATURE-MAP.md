@@ -553,6 +553,7 @@ Code: `App/Dialogs.cs` (`ShowSettings`, `ShowImport`, `ShowWelcome`), `Core/Conf
 | SET-FIRST-01 | First launch: sample data, import a configuration, or add an account | Done | |
 | SET-DEMO-01 | Demo mode (`--demo`): labeled sample data in a temporary folder | Done | Seeds tasks and notes. |
 | SET-NOTE-01 | Notes settings: sort, panes, max picture size, trash retention | Done | `config.json` → `notes`. |
+| SET-ABOUT-01 | Settings → About: version and environment, Copy diagnostics (no email address, ids, mail or contents), Send feedback on dev builds (the public alondra1-www issue form) | Done | `Core/Diagnostics.cs`, `DiagnosticsTests`. |
 
 ## 12. Security and privacy (`SEC`)
 
