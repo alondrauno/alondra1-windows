@@ -212,7 +212,7 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             _ = store.SetMetaAsync("sync_enabled", null, CancellationToken.None);
             Set(SyncState.ErrorPermanent, "You no longer have access to this space. Sync stopped; your tasks are kept on this PC.");
         }
-        else if (e.Status is >= 500 or 429)
+        else if (e.Status is >= 500 or 429 or 408)
             Set(SyncState.ErrorRetryable, "The cloud is busy. Alondra1 will retry.");
         else
             Set(SyncState.ErrorPermanent, e.Message);
@@ -348,7 +348,8 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
                 failed.Remove(sha);
                 changed = true;
             }
-            catch (CloudApiException e) when (!e.IsNetwork && e.Status is not (401 or 403 or 429) && e.Status < 500)
+            // 408 UPLOAD_INCOMPLETE (the transfer broke off) is retried like 429/503, never recorded as a failure.
+            catch (CloudApiException e) when (!e.IsNetwork && e.Status is not (401 or 403 or 408 or 429) && e.Status < 500)
             {
                 failed[sha] = e.Message;
                 changed = true;

@@ -538,8 +538,10 @@ public sealed class CloudSyncTests : IAsyncDisposable
         Assert.Equal(0, asked);
     }
 
-    [Fact]
-    public async Task A_busy_server_keeps_the_file_and_the_task_queued()
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)] // 503 BUSY
+    [InlineData(HttpStatusCode.RequestTimeout)]     // 408 UPLOAD_INCOMPLETE: the transfer broke off
+    public async Task A_busy_server_keeps_the_file_and_the_task_queued(HttpStatusCode busy)
     {
         await Start_(withFiles: true);
         await _engine.EnableAsync(Tenant);
@@ -548,7 +550,7 @@ public sealed class CloudSyncTests : IAsyncDisposable
         var task = await _board.AddTaskAsync(_board.DefaultList.Id, "Busy");
         var attachment = _taskFiles!.Import(task.Id, source, Start.AddMinutes(1));
         await _board.UpdateTaskAsync(task.Id, t => t.Attachments.Add(attachment));
-        _cloud.FileUploadStatus = HttpStatusCode.ServiceUnavailable;
+        _cloud.FileUploadStatus = busy;
         Assert.Equal(SyncState.ErrorRetryable, (await _engine.SyncNowAsync()).State);
         Assert.Equal(TaskFileTransferState.Queued, _engine.KnownTaskFileState(attachment)!.State);
         Assert.True(await _store.PendingCountAsync(CancellationToken.None) > 0);
