@@ -122,8 +122,12 @@ public sealed class AttachmentVm
     public required string Id { get; init; }
     public required string FileName { get; init; }
     public required string SizeText { get; init; }
+    /// <summary>Not on this PC (and not downloadable: no cloud copy known).</summary>
     public bool Missing { get; init; }
-    public override string ToString() => FileName + ", " + SizeText + (Missing ? ", missing" : "");
+    /// <summary>Where the bytes are: "in the cloud", "not on this PC", "not synced: …", or empty when here.</summary>
+    public string StatusText { get; init; } = "";
+    public bool HasStatus => StatusText.Length > 0;
+    public override string ToString() => FileName + ", " + SizeText + (HasStatus ? ", " + StatusText : "");
 }
 
 public sealed class ListChoice

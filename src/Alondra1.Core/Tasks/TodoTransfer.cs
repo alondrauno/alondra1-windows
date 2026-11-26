@@ -176,7 +176,8 @@ public static class TodoTransfer
             copy.Notes = Clip(copy.Notes ?? "", MaxNotes);
             copy.Subtasks = (copy.Subtasks ?? []).Select(step => { step.Id = NewId.Create(); step.Title = Clip(step.Title ?? "", MaxTitle); return step; }).ToList();
             copy.Reminders = (copy.Reminders ?? []).GroupBy(item => item.At).Select(item => { var first = item.First(); first.Id = NewId.Create(); return first; }).ToList();
-            copy.Attachments = (copy.Attachments ?? []).Where(item => IsSafeRelativePath(item.RelativePath)).Select(item => { item.Id = NewId.Create(); return item; }).ToList();
+            copy.Attachments = (copy.Attachments ?? []).Where(item => IsSafeRelativePath(item.RelativePath) || TaskAttachment.IsHash(item.Sha256))
+                .Select(item => { item.Id = NewId.Create(); if (!IsSafeRelativePath(item.RelativePath)) item.RelativePath = ""; return item; }).ToList();
             if ((task.Attachments?.Count ?? 0) != copy.Attachments.Count)
                 warnings.Add($"Unsafe attachment paths were dropped from '{copy.Title}'.");
             if (copy.Recurrence is { } rule)

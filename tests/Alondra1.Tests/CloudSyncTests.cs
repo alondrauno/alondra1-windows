@@ -27,6 +27,8 @@ public sealed class ScriptedCloud : HttpMessageHandler
     public string Changes { get; set; } = "[]";
     public bool Offline { get; set; }
     public Func<JsonObject, HttpResponseMessage>? PushResponder { get; set; }
+    /// <summary>Task files stored with PUT /v1/task-files/{sha256}.</summary>
+    public Dictionary<string, byte[]> Files { get; } = [];
 
     public static HttpResponseMessage Json(string body, HttpStatusCode code = HttpStatusCode.OK) =>
         new(code) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -71,6 +73,22 @@ public sealed class ScriptedCloud : HttpMessageHandler
             return (PushResponder ?? AppliedAll)(body);
         }
 
+        if (path.StartsWith("/v1/task-files/limits", StringComparison.Ordinal))
+            return Json("""{"max_file_bytes":1048576,"max_per_task":4,"quota_bytes":0,"space_used_bytes":0}""");
+        if (path.StartsWith("/v1/task-files/", StringComparison.Ordinal))
+        {
+            var sha = path["/v1/task-files/".Length..];
+            if (request.Method == HttpMethod.Put)
+            {
+                Files[sha] = await request.Content!.ReadAsByteArrayAsync(cancellationToken);
+                return Json("""{"id":"x","mime_type":"application/pdf","bytes":1,"created_at":"2026-11-23T10:00:00Z"}""", HttpStatusCode.Created);
+            }
+
+            return Files.TryGetValue(sha, out var bytes)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }
+                : Json("""{"error":{"code":"NOT_FOUND","message":"no"}}""", HttpStatusCode.NotFound);
+        }
+
         if (path.StartsWith("/v1/sync/changes", StringComparison.Ordinal))
         {
             var changes = Changes;
@@ -94,7 +112,9 @@ public sealed class CloudSyncTests : IAsyncDisposable
     private string _path = null!;
     private int _backups;
 
-    private async Task<CloudSyncTests> Start_()
+    private TaskFileStore? _taskFiles;
+
+    private async Task<CloudSyncTests> Start_(bool withFiles = false)
     {
         _path = Path.Combine(Directory.CreateTempSubdirectory("alondra1-cloud-").FullName, "todo.db");
         _store = new SqliteTaskStore(_path);
@@ -102,7 +122,9 @@ public sealed class CloudSyncTests : IAsyncDisposable
         _board = new TaskBoard(_store, new FixedClock(Start), TimeZoneInfo.Utc);
         await _board.LoadAsync();
         var api = new CloudApi(new Uri("http://127.0.0.1:9/"), _tokens, _cloud);
-        _engine = new CloudSyncEngine(_board, _store, api, new FixedClock(Start), () => { _backups++; return Task.CompletedTask; });
+        if (withFiles)
+            _taskFiles = new TaskFileStore(Path.Combine(Path.GetDirectoryName(_path)!, "task-files"));
+        _engine = new CloudSyncEngine(_board, _store, api, new FixedClock(Start), () => { _backups++; return Task.CompletedTask; }, taskFiles: _taskFiles);
         return this;
     }
 
@@ -303,5 +325,72 @@ public sealed class CloudSyncTests : IAsyncDisposable
         Assert.True(e.ManageBilling);
         Assert.Equal(3, e.ArchiveMessages);
         Assert.Contains("read-only", e.Describe());
+    }
+
+    [Fact]
+    public async Task Task_files_go_up_before_the_task_and_download_on_demand_elsewhere()
+    {
+        await Start_(withFiles: true);
+        var source = Path.Combine(Path.GetDirectoryName(_path)!, "ticket.pdf");
+        await File.WriteAllBytesAsync(source, Encoding.ASCII.GetBytes("%PDF-1.7 windows"));
+        var task = await _board.AddTaskAsync(_board.DefaultList.Id, "Trip");
+        var attachment = _taskFiles!.Import(task.Id, source, Start);
+        Assert.Equal("application/pdf", attachment.MediaType);
+        Assert.True(TaskAttachment.IsHash(attachment.Sha256));
+        await _board.UpdateTaskAsync(task.Id, t => t.Attachments.Add(attachment));
+
+        Assert.Equal(SyncState.Synced, (await _engine.EnableAsync(Tenant)).State);
+
+        var put = _cloud.Paths.IndexOf("/v1/task-files/" + attachment.Sha256);
+        var push = _cloud.Paths.FindIndex(p => p.StartsWith("/v1/sync/push", StringComparison.Ordinal));
+        Assert.InRange(put, 0, push - 1);
+        Assert.Equal(await File.ReadAllBytesAsync(source), _cloud.Files[attachment.Sha256!]);
+        var sent = _cloud.Pushes.SelectMany(p => p["mutations"]!.AsArray()).OfType<JsonObject>().Single(m => m["resource_id"]!.GetValue<string>() == task.Id);
+        Assert.Equal(attachment.Sha256, sent["resource"]!["attachments"]![0]!["sha256"]!.GetValue<string>());
+        Assert.Equal((true, (string?)null), await _engine.TaskFileStateAsync(attachment.Sha256!));
+        Assert.Equal(4, _engine.MaxTaskFilesPerTask);
+
+        // Not sent again on the next sync.
+        _cloud.Paths.Clear();
+        await _board.UpdateTaskAsync(task.Id, t => t.Title = "Trip to Rome");
+        await _engine.SyncNowAsync();
+        Assert.DoesNotContain(_cloud.Paths, p => p.StartsWith("/v1/task-files/", StringComparison.Ordinal) && !p.EndsWith("limits", StringComparison.Ordinal));
+
+        // A file added on another device: only its hash is known here until it is opened.
+        var other = Encoding.ASCII.GetBytes("from the phone");
+        var otherSha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(other));
+        var remote = new TaskAttachment { FileName = "phone.txt", Sha256 = otherSha, Size = other.Length };
+        Assert.Null(_taskFiles.Resolve(remote));
+        Assert.False(await _engine.DownloadTaskFileAsync(otherSha)); // not uploaded yet
+        _cloud.Files[otherSha] = other;
+        Assert.True(await _engine.DownloadTaskFileAsync(otherSha));
+        Assert.Equal(other, await File.ReadAllBytesAsync(_taskFiles.Resolve(remote)!));
+        _cloud.Files["f".PadRight(64, 'f')] = other;
+        Assert.False(await _engine.DownloadTaskFileAsync("f".PadRight(64, 'f'))); // bytes that do not match are not kept
+    }
+
+    [Fact]
+    public async Task Attachments_from_other_devices_keep_their_hash_and_type_through_Windows()
+    {
+        await Start_();
+        var sha = new string('a', 64);
+        _cloud.BootstrapItems = $"[{ListRecord("d", 1, true)},{Feed("task", "t1", 3, new JsonObject
+        {
+            ["id"] = "t1", ["listId"] = "d", ["title"] = "From Android", ["createdUtc"] = "2026-11-01T00:00:00Z", ["modifiedUtc"] = "2026-11-01T00:00:00Z",
+            ["attachments"] = new JsonArray(new JsonObject { ["id"] = "a1", ["fileName"] = "scan.pdf", ["size"] = 3, ["addedUtc"] = "2026-11-01T00:00:00Z", ["sha256"] = sha, ["mediaType"] = "application/pdf" }),
+        })}]";
+        await _engine.EnableAsync(Tenant);
+        await _board.UpdateTaskAsync("t1", t => t.Title = "Edited on Windows");
+        await _engine.SyncNowAsync();
+        var patch = _cloud.Pushes.SelectMany(p => p["mutations"]!.AsArray()).OfType<JsonObject>().Last(m => m["resource_id"]!.GetValue<string>() == "t1");
+        var sent = (patch["changes"]!["attachments"] ?? null) as JsonArray;
+        // Either the attachments are unchanged (not in the patch) or they keep the hash and type.
+        if (sent is not null)
+        {
+            Assert.Equal(sha, sent[0]!["sha256"]!.GetValue<string>());
+            Assert.Equal("application/pdf", sent[0]!["mediaType"]!.GetValue<string>());
+        }
+
+        Assert.Equal(sha, _board.FindTask("t1")!.Attachments.Single().Sha256);
     }
 }

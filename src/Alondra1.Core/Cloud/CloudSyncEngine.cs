@@ -16,8 +16,12 @@ public sealed record MergePreview(int LocalTasks, int LocalLists, int LocalGroup
 /// Call it from the UI thread (TaskBoard is single-threaded).
 /// </summary>
 public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, CloudApi api, IClock clock, Func<Task>? backup = null,
-    NotesBoard? notes = null, NoteAssets? assets = null)
+    NotesBoard? notes = null, NoteAssets? assets = null, ITaskFiles? taskFiles = null)
 {
+    /// <summary>Attachment limits; the server's once known (GET /v1/task-files/limits).</summary>
+    public long MaxTaskFileBytes { get; private set; } = 25L << 20;
+    public int MaxTaskFilesPerTask { get; private set; } = 10;
+
     /// <summary>Push requests stay below the server's 8 MiB body limit (rich notes can be large).</summary>
     private const int MaxPushBytes = 6 << 20;
     private const int MaxDownloadsPerRun = 200;
@@ -151,6 +155,7 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
                 await PushAsync(tenant, ct).ConfigureAwait(true);
                 await PullAsync(tenant, ct).ConfigureAwait(true);
                 await DownloadAssetsAsync(tenant, ct).ConfigureAwait(true);
+                await RefreshTaskFileLimitsAsync(tenant, ct).ConfigureAwait(true);
                 // Conflict copies are created while pushing: send them in this same run, not at the next sync.
                 if ((await store.OutboxAsync(ct).ConfigureAwait(true)).Any(i => !i.Attempted))
                     await PushAsync(tenant, ct).ConfigureAwait(true);
@@ -214,6 +219,8 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
 
             if (item.EntityType == CloudKinds.Note)
                 await UploadAssetsAsync(tenant, mutation, ct).ConfigureAwait(true);
+            if (item.EntityType == CloudKinds.Task)
+                await UploadTaskFilesAsync(tenant, mutation, ct).ConfigureAwait(true);
             var size = System.Text.Encoding.UTF8.GetByteCount(mutation.ToJsonString());
             if (batch.Count > 0 && (batch.Count >= 100 || batchBytes + size > MaxPushBytes))
             {
@@ -265,6 +272,114 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             await CloudApi.EnsureSuccessAsync(response, ct).ConfigureAwait(true);
             await ((INoteStore)store).MarkAssetUploadedAsync(sha, ct).ConfigureAwait(true);
         }
+    }
+
+    /// <summary>
+    /// Files attached to a task go up before the task that lists them, so another device that sees the attachment can
+    /// fetch it. Content-addressed (PUT /v1/task-files/{sha256}): a file already uploaded is not resent and an
+    /// interrupted upload is sent again whole. A file the server refuses for good (too large, no room) is remembered
+    /// as failed and the task still syncs. Bytes never go into task JSON.
+    /// </summary>
+    private async Task UploadTaskFilesAsync(string tenant, JsonObject mutation, CancellationToken ct)
+    {
+        if (taskFiles is null)
+            return;
+        var task = (mutation["resource"] ?? mutation["changes"]) as JsonObject;
+        if (task?["attachments"] is not JsonArray list)
+            return;
+        var uploaded = await ShaSetAsync("task_files_uploaded", ct).ConfigureAwait(true);
+        var failed = await FailedTaskFilesAsync(ct).ConfigureAwait(true);
+        var changed = false;
+        foreach (var node in list.OfType<JsonObject>())
+        {
+            var attachment = node.Deserialize<TaskAttachment>(Json);
+            if (attachment is null || !TaskAttachment.IsHash(attachment.Sha256) || uploaded.Contains(attachment.Sha256!))
+                continue;
+            if (taskFiles.Resolve(attachment) is not { } path)
+                continue;
+            var sha = attachment.Sha256!;
+            try
+            {
+                var data = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(true);
+                using var response = await api.SendAuthorizedAsync(HttpMethod.Put, "/v1/task-files/" + sha, () =>
+                {
+                    var content = new ByteArrayContent(data);
+                    content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                    return content;
+                }, tenant, ct).ConfigureAwait(true);
+                await CloudApi.EnsureSuccessAsync(response, ct).ConfigureAwait(true);
+                uploaded.Add(sha);
+                failed.Remove(sha);
+                changed = true;
+            }
+            catch (CloudApiException e) when (!e.IsNetwork && e.Status is not (401 or 403 or 429) && e.Status < 500)
+            {
+                failed[sha] = e.Message;
+                changed = true;
+            }
+            catch (IOException)
+            {
+                // The file is in use or gone: try again next time.
+            }
+        }
+
+        if (changed)
+        {
+            await store.SetMetaAsync("task_files_uploaded", new JsonArray(uploaded.Select(s => (JsonNode)s).ToArray()).ToJsonString(), ct).ConfigureAwait(true);
+            await store.SetMetaAsync("task_files_failed", failed.Count == 0 ? null : JsonSerializer.Serialize(failed), ct).ConfigureAwait(true);
+        }
+    }
+
+    private async Task<HashSet<string>> ShaSetAsync(string key, CancellationToken ct) =>
+        await store.GetMetaAsync(key, ct).ConfigureAwait(true) is { } json && JsonNode.Parse(json) is JsonArray a
+            ? a.Select(n => n?.GetValue<string>()).OfType<string>().ToHashSet()
+            : [];
+
+    private async Task<Dictionary<string, string>> FailedTaskFilesAsync(CancellationToken ct) =>
+        await store.GetMetaAsync("task_files_failed", ct).ConfigureAwait(true) is { } json
+            ? JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? []
+            : [];
+
+    /// <summary>Whether the file is known to be in cloud storage, and why its upload failed (null when it did not).</summary>
+    public async Task<(bool Uploaded, string? Error)> TaskFileStateAsync(string sha256, CancellationToken ct = default)
+    {
+        var uploaded = (await ShaSetAsync("task_files_uploaded", ct).ConfigureAwait(true)).Contains(sha256);
+        return (uploaded, (await FailedTaskFilesAsync(ct).ConfigureAwait(true)).GetValueOrDefault(sha256));
+    }
+
+    private async Task RefreshTaskFileLimitsAsync(string tenant, CancellationToken ct)
+    {
+        if (taskFiles is null)
+            return;
+        try
+        {
+            var limits = await api.CallAsync(HttpMethod.Get, "/v1/task-files/limits", null, tenant, ct).ConfigureAwait(true);
+            if (limits["max_file_bytes"]?.GetValue<long>() is > 0 and var bytes)
+                MaxTaskFileBytes = bytes;
+            if (limits["max_per_task"]?.GetValue<int>() is > 0 and var count)
+                MaxTaskFilesPerTask = count;
+        }
+        catch (Exception e) when (e is CloudApiException or InvalidOperationException or FormatException)
+        {
+            // Keep the defaults.
+        }
+    }
+
+    /// <summary>
+    /// Downloads an attachment added on another device (when it is opened). True when its bytes are now on this PC;
+    /// false when the cloud does not have them (not uploaded yet) or Cloud Sync is off.
+    /// </summary>
+    public async Task<bool> DownloadTaskFileAsync(string sha256, CancellationToken ct = default)
+    {
+        if (taskFiles is null || !TaskAttachment.IsHash(sha256) || await store.GetMetaAsync("tenant", ct).ConfigureAwait(true) is not { } tenant
+            || !await EnabledAsync(ct).ConfigureAwait(true))
+            return false;
+        using var response = await api.SendAuthorizedAsync(HttpMethod.Get, "/v1/task-files/" + sha256, () => null, tenant, ct).ConfigureAwait(true);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return false;
+        await CloudApi.EnsureSuccessAsync(response, ct).ConfigureAwait(true);
+        var data = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(true);
+        return taskFiles.SaveDownloaded(sha256, data);
     }
 
     /// <summary>Downloads pictures of notes from other devices (a few per run; the rest next time).</summary>

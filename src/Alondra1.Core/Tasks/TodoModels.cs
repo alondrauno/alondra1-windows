@@ -62,7 +62,11 @@ public sealed class Subtask
     public Subtask Clone() => (Subtask)MemberwiseClone();
 }
 
-/// <summary>A file copied into Alondra1's local task-file folder. <see cref="RelativePath"/> is relative to that folder.</summary>
+/// <summary>
+/// A file attached to a task. <see cref="RelativePath"/> is this PC's copy, relative to the task-file folder (empty for
+/// a file added on another device); <see cref="Sha256"/> is the file's id in cloud storage (/v1/task-files), set when
+/// the file is added here and kept from other devices, so every device can fetch the same bytes.
+/// </summary>
 public sealed class TaskAttachment
 {
     public string Id { get; set; } = NewId.Create();
@@ -70,6 +74,10 @@ public sealed class TaskAttachment
     public string RelativePath { get; set; } = "";
     public long Size { get; set; }
     public DateTimeOffset AddedUtc { get; set; }
+    public string? Sha256 { get; set; }
+    public string? MediaType { get; set; }
+
+    public static bool IsHash(string? value) => value is { Length: 64 } && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     public TaskAttachment Clone() => (TaskAttachment)MemberwiseClone();
 }

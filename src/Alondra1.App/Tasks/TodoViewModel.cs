@@ -611,13 +611,19 @@ public sealed partial class TodoViewModel : ObservableObject
                    + (item.SnoozedUntilUtc is { } snooze ? " · snoozed to " + TodoFormat.Time(TimeOnly.FromDateTime(snooze.ToLocalTime().DateTime)) : ""),
             Past = item.At < now && item.SnoozedUntilUtc is null,
         }).ToList(), (a, b) => a.Id == b.Id && a.Text == b.Text);
-        Sync(Attachments, task.Attachments.Select(item => new AttachmentVm
+        Sync(Attachments, task.Attachments.Select(item =>
         {
-            Id = item.Id,
-            FileName = item.FileName,
-            SizeText = TodoFormat.Size(item.Size),
-            Missing = _services.TaskFiles?.Resolve(item) is null,
-        }).ToList(), (a, b) => a.Id == b.Id);
+            var here = _services.TaskFiles?.Resolve(item) is not null;
+            var cloud = TaskAttachment.IsHash(item.Sha256) && _services.CloudSync is not null;
+            return new AttachmentVm
+            {
+                Id = item.Id,
+                FileName = item.FileName,
+                SizeText = TodoFormat.Size(item.Size),
+                Missing = !here && !cloud,
+                StatusText = here ? "" : cloud ? "in the cloud · click to download" : "not on this PC",
+            };
+        }).ToList(), (a, b) => a.Id == b.Id && a.StatusText == b.StatusText);
         RaiseDetail();
     }
 
@@ -869,6 +875,40 @@ public sealed partial class TodoViewModel : ObservableObject
         if (_detailId is not { } id || _board!.FindTask(id)?.Attachments.FirstOrDefault(item => item.Id == attachmentId) is not { } attachment)
             return null;
         return _services.TaskFiles?.Resolve(attachment);
+    }
+
+    /// <summary>
+    /// The attachment's file on this PC, downloading it from the cloud first when it was added on another device.
+    /// Null (with a message shown) when that is not possible.
+    /// </summary>
+    public async Task<string?> FetchAttachmentAsync(string attachmentId)
+    {
+        if (ResolveAttachment(attachmentId) is { } path)
+            return path;
+        if (_detailId is not { } id || _board!.FindTask(id)?.Attachments.FirstOrDefault(item => item.Id == attachmentId) is not { } attachment)
+            return null;
+        if (!TaskAttachment.IsHash(attachment.Sha256) || _services.CloudSync is not { } cloud)
+        {
+            Error("This file is only on the device that added it.");
+            return null;
+        }
+
+        try
+        {
+            if (!await cloud.DownloadTaskFileAsync(attachment.Sha256!))
+            {
+                Error("This file hasn't been uploaded from the other device yet, or Cloud Sync is off.");
+                return null;
+            }
+        }
+        catch (Alondra1.Core.Cloud.CloudApiException e)
+        {
+            Error(e.IsNetwork ? "You're offline. The file downloads when you're back online." : "The file could not be downloaded: " + e.Message);
+            return null;
+        }
+
+        RebuildDetail();
+        return ResolveAttachment(attachmentId);
     }
 
     public async Task RemoveAttachmentAsync(string attachmentId)

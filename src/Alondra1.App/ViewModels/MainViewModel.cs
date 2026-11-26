@@ -1790,7 +1790,7 @@ public sealed class AppServices
         var sync = new SyncCoordinator(mail, store, cache, secrets, oauth, new Alondra1.Core.Ports.SystemClock(), new NullConflicts());
         var (taskStore, taskFiles, board, taskError) = await OpenTasksAsync(root).ConfigureAwait(false);
         var (notesBoard, noteAssets) = await OpenNotesAsync(config, taskStore, root).ConfigureAwait(false);
-        var (cloudApi, cloudAccount, cloudSync, discovery, endpoints) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, root);
+        var (cloudApi, cloudAccount, cloudSync, discovery, endpoints) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, taskFiles, root);
         return new AppServices
         {
             Discovery = discovery,
@@ -1825,7 +1825,7 @@ public sealed class AppServices
     private static (Alondra1.Core.Cloud.CloudApi?, Alondra1.Core.Cloud.CloudAccount?, Alondra1.Core.Cloud.CloudSyncEngine?,
         Alondra1.Core.Cloud.Discovery.DiscoveryClient?, Alondra1.Core.Cloud.Discovery.EndpointSelector?) CreateCloud(
         AppConfig config, DpapiSecretStore secrets, SqliteTaskStore? taskStore, Alondra1.Core.Tasks.TaskBoard? board,
-        Alondra1.Core.Notes.NotesBoard? notes, Alondra1.Core.Notes.NoteAssets? assets, string root)
+        Alondra1.Core.Notes.NotesBoard? notes, Alondra1.Core.Notes.NoteAssets? assets, TaskFileStore? taskFiles, string root)
     {
         if (taskStore is null || board is null)
             return (null, null, null, null, null);
@@ -1868,7 +1868,7 @@ public sealed class AppServices
                 var folder = Path.Combine(root, "backups");
                 Directory.CreateDirectory(folder);
                 await taskStore.BackupToAsync(Path.Combine(folder, $"todo-before-cloud-{DateTime.Now:yyyyMMdd-HHmmss}.db")).ConfigureAwait(true);
-            }, notes, assets);
+            }, notes, assets, taskFiles);
             return (api, account, engine, discovery, endpoints);
         }
         catch (Exception ex) when (ex is ArgumentException or UriFormatException)
@@ -1923,6 +1923,22 @@ public sealed class AppServices
             try
             {
                 taskFiles.RemoveOrphans(board.Tasks);
+                // Files attached before attachments synced get their SHA-256 now, so other devices can fetch them.
+                foreach (var task in board.Tasks.Where(t => t.Attachments.Any(a => a.Sha256 is null && taskFiles.Resolve(a) is not null)).ToList())
+                {
+                    await board.UpdateTaskAsync(task.Id, t =>
+                    {
+                        foreach (var a in t.Attachments.Where(a => a.Sha256 is null))
+                        {
+                            if (taskFiles.Resolve(a) is { } path)
+                            {
+                                var (sha, head) = TaskFileStore.Hash(path);
+                                a.Sha256 = sha;
+                                a.MediaType ??= TaskFileStore.Sniff(head);
+                            }
+                        }
+                    }, "Prepare files for sync", undoable: false).ConfigureAwait(false);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

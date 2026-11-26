@@ -880,16 +880,14 @@ public partial class TodoView : UserControl
             await model.AttachFilesAsync(dialog.FileNames);
     }
 
-    private void OpenAttachment_Click(object sender, RoutedEventArgs e)
+    private async void OpenAttachment_Click(object sender, RoutedEventArgs e)
     {
         if (Model is not { } model || sender is not FrameworkElement { Tag: string id })
             return;
-        var path = model.ResolveAttachment(id);
+        // Added on another device: downloaded from the cloud first.
+        var path = await model.FetchAttachmentAsync(id);
         if (path is null)
-        {
-            model.Error("The attached file is missing from Alondra1's data folder.");
             return;
-        }
 
         try
         {

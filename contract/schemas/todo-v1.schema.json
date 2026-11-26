@@ -86,21 +86,24 @@
       }
     },
     "TaskAttachment": {
-      "description": "Metadata only. The file bytes stay in the device's task-file folder; cloud sync does not back them up yet.",
+      "description": "Metadata only; the bytes never travel in task JSON. relativePath is the Windows app's local copy (meaningless on other devices); sha256 is set once the bytes are in cloud storage (PUT /v1/task-files/{sha256}) so every signed-in device can download them. At least one of the two is present.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "fileName", "relativePath"],
+      "required": ["id", "fileName"],
+      "anyOf": [{ "required": ["relativePath"] }, { "required": ["sha256"] }],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "fileName": { "type": "string", "maxLength": 260 },
         "relativePath": {
           "type": "string",
           "maxLength": 520,
-          "pattern": "^(?![\\\\/])(?!.*(^|[\\\\/])\\.\\.([\\\\/]|$))(?![A-Za-z]:).+$",
-          "description": "Relative to the task-file folder; never absolute, never containing '..'."
+          "pattern": "^$|^(?![\\\\/])(?!.*(^|[\\\\/])\\.\\.([\\\\/]|$))(?![A-Za-z]:).+$",
+          "description": "Relative to the task-file folder; never absolute, never containing '..'. Empty when the file exists only in cloud storage."
         },
         "size": { "type": "integer", "minimum": 0 },
-        "addedUtc": { "$ref": "#/$defs/utcInstant" }
+        "addedUtc": { "$ref": "#/$defs/utcInstant" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the bytes: the task file's id in cloud storage." },
+        "mediaType": { "type": "string", "pattern": "^[a-z0-9.+-]{1,50}/[a-z0-9.+-]{1,100}$", "description": "Type the adding device recognised (for icons and previews); the server keeps its own sniffed type." }
       }
     },
     "TodoTask": {

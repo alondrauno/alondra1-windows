@@ -855,7 +855,7 @@
                           <ui:Alondra1Icon Kind="Attachment" IconSize="14" Foreground="{DynamicResource BlueBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                           <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" MaxWidth="180"/>
                           <TextBlock Text="{Binding SizeText}" Style="{StaticResource Muted}" Margin="6,0,0,0"/>
-                          <TextBlock Text="missing" Foreground="{DynamicResource DangerBrush}" FontSize="11" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{Binding Missing, Converter={StaticResource BoolVis}}"/>
+                          <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{Binding HasStatus, Converter={StaticResource BoolVis}}"/>
                         </StackPanel>
                       </Button>
                     </DockPanel>
