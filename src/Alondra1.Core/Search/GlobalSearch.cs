@@ -229,7 +229,7 @@ public sealed class MailSearchSource(
         var total = Math.Max(unique.Count, page.Total ?? 0);
         var coverage = accounts.Count == 0 ? "No mail account is set up."
             : $"Mail kept on this PC in {Plural(accounts.Count, "account")}" + (headersOnly ? "; some messages only by sender and subject (body not downloaded)." : ".")
-              + " Attachments by name, and the text of PDF and plain-text files on this PC.";
+              + " Attachments by name, and the text of PDF, Office and plain-text files on this PC.";
         if (notes?.Invoke() is { Length: > 0 } note)
             coverage += " " + note;
         if (filters?.Invoke() is { Length: > 0 } active)

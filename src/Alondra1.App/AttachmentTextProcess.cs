@@ -6,23 +6,29 @@ using Alondra1.Core.Search;
 namespace Alondra1.App;
 
 /// <summary>
-/// Reads a PDF's text in a separate process (this app started with <see cref="Flag"/>), so a malformed or hostile PDF
-/// can only fail, hang or crash that process: it is stopped after <see cref="AttachmentText.PdfTimeLimit"/>, runs at
-/// low priority, and its output is capped. The text comes back over a pipe; nothing is written to a temporary file.
+/// Reads a PDF or Office attachment's text in a separate process (this app started with <see cref="Flag"/>), so a
+/// malformed or hostile file can only fail, hang or crash that process: it is stopped after
+/// <see cref="AttachmentText.IsolatedTimeLimit"/>, runs at low priority, and its output is capped. The text comes back over
+/// a pipe; nothing is written to a temporary file.
 /// </summary>
-public static class PdfTextProcess
+public static class AttachmentTextProcess
 {
-    public const string Flag = "--read-pdf-text";
+    public const string Flag = "--read-attachment-text";
 
     /// <summary>In the child: writes the text to standard output as UTF-8. Exit code 0 when read, 2 when not.</summary>
-    public static int RunChild(string path)
+    public static int RunChild(string kind, string path)
     {
         try
         {
             using var file = File.OpenRead(path);
-            if (file.Length > AttachmentText.MaxPdfBytes)
+            var text = kind switch
+            {
+                "pdf" when file.Length <= AttachmentText.MaxPdfBytes => Alondra1.Mail.PdfText.Read(file, AttachmentText.MaxPdfPages, AttachmentText.MaxChars),
+                "office" when file.Length <= AttachmentText.MaxOfficeBytes => Alondra1.Mail.OfficeText.Read(file, AttachmentText.MaxChars),
+                _ => null,
+            };
+            if (text is null)
                 return 2;
-            var text = Alondra1.Mail.PdfText.Read(file, AttachmentText.MaxPdfPages, AttachmentText.MaxChars);
             using var output = Console.OpenStandardOutput();
             var bytes = Encoding.UTF8.GetBytes(text);
             output.Write(bytes, 0, bytes.Length);
@@ -35,11 +41,12 @@ public static class PdfTextProcess
         }
     }
 
-    /// <summary>In the app: the PDF's text, or null when it could not be read in time.</summary>
-    public static async Task<string?> ReadAsync(string path, CancellationToken cancellationToken)
+    /// <summary>In the app: the file's text, or null when it could not be read in time.</summary>
+    public static async Task<string?> ReadAsync(AttachmentTextKind kind, string path, CancellationToken cancellationToken)
     {
         var exe = Environment.ProcessPath;
-        if (exe is null)
+        var name = kind switch { AttachmentTextKind.Pdf => "pdf", AttachmentTextKind.Office => "office", _ => null };
+        if (exe is null || name is null)
             return null;
         var start = new ProcessStartInfo(exe)
         {
@@ -49,6 +56,7 @@ public static class PdfTextProcess
             StandardOutputEncoding = Encoding.UTF8,
         };
         start.ArgumentList.Add(Flag);
+        start.ArgumentList.Add(name);
         start.ArgumentList.Add(path);
         using var process = Process.Start(start);
         if (process is null)
@@ -62,7 +70,7 @@ public static class PdfTextProcess
         }
 
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        limit.CancelAfter(AttachmentText.PdfTimeLimit);
+        limit.CancelAfter(AttachmentText.IsolatedTimeLimit);
         try
         {
             var buffer = new char[AttachmentText.MaxChars + 1];

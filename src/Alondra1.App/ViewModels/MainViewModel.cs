@@ -2086,7 +2086,7 @@ public sealed partial class MainViewModel : ObservableObject
     private Task? _attachmentReading;
 
     /// <summary>
-    /// Reads the text of newly downloaded attachments (plain text here, PDFs in a separate process), a batch at a time,
+    /// Reads the text of newly downloaded attachments (plain text here, PDF and Office files in a separate process), a batch at a time,
     /// in the background after sync. One run at a time; it stops when nothing is left or the window closes.
     /// </summary>
     public void ReadAttachmentTextSoon()
@@ -2095,7 +2095,7 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         _attachmentReading = Task.Run(async () =>
         {
-            var reader = new AttachmentTextReader(_services.Store, _services.Files.Resolve, PdfTextProcess.ReadAsync);
+            var reader = new AttachmentTextReader(_services.Store, _services.Files.Resolve, AttachmentTextProcess.ReadAsync);
             try
             {
                 for (var batch = 0; batch < 40 && await reader.ReadPendingAsync(10, CancellationToken.None).ConfigureAwait(false) > 0; batch++)

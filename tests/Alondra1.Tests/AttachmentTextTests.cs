@@ -26,7 +26,10 @@ public class AttachmentTextTests
     [InlineData("readme", "text/plain; charset=utf-8", AttachmentTextKind.PlainText)]
     [InlineData("report.pdf", "application/octet-stream", AttachmentTextKind.Pdf)]
     [InlineData("scan", "application/pdf", AttachmentTextKind.Pdf)]
-    [InlineData("budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", AttachmentTextKind.None)]
+    [InlineData("budget.xlsx", "application/octet-stream", AttachmentTextKind.Office)]
+    [InlineData("letter", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", AttachmentTextKind.Office)]
+    [InlineData("minutes.odt", "application/octet-stream", AttachmentTextKind.Office)]
+    [InlineData("legacy.doc", "application/msword", AttachmentTextKind.None)]
     [InlineData("archive.zip", "application/zip", AttachmentTextKind.None)]
     [InlineData("run.cmd", "text/plain", AttachmentTextKind.None)]
     public void OnlyTheAllowlistIsRead(string name, string type, AttachmentTextKind expected) =>
@@ -113,7 +116,7 @@ public class AttachmentTextTests
             Assert.Equal(4, await store.CountAttachmentsToReadAsync(default));
 
             var pdfCalls = 0;
-            var reader = new AttachmentTextReader(store, files.Resolve, (path, ct) =>
+            var reader = new AttachmentTextReader(store, files.Resolve, (kind, path, ct) =>
             {
                 pdfCalls++;
                 try
