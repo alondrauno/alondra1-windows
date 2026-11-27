@@ -8,7 +8,7 @@ Repository: `alondra1-windows`, branch `main`. Record written 2026-11-27.
 | Item | Result |
 |---|---|
 | Build | .NET 10 SDK, Debug, `main` at the commit that adds this file |
-| Automated tests | `dotnet test`: **391 passed, 0 failed, 8 skipped** (skipped: live mail/cloud tests that need real accounts, the 10 GB mailbox test, and the opt-in §10 benchmark below, run separately) |
+| Automated tests | `dotnet test`: **396 passed, 0 failed, 8 skipped** (skipped: live mail/cloud tests that need real accounts, the 10 GB mailbox test, and the opt-in §10 benchmark below, run separately) |
 | §10 benchmark | `ALONDRA1_MAIL_UI_BENCH=1 dotnet test --filter Budgets_with_ten_and_fifteen_accounts_and_100k_headers`: **passed** |
 | Screenshots | `docs/screenshots/mail-ui/` (16 images, demo data and synthetic accounts only) |
 | Fixtures | Synthetic only: `SampleCatalog` (2 accounts, or `--demo-accounts=N` up to 15), `MailUiScaleTests.SeedAsync` (up to 15 accounts, 100,000 headers). No real credentials or mailboxes. |
@@ -41,12 +41,12 @@ the gap is named and listed again in §5.
 | T16 | P0 | Pass | `GlobalSearchTests` (module vs All, All persists, All mail never broadens, unknown saved reach falls back); scope chip always visible; the cloud archive is searched only on request (§3.4) |
 | T17 | P0 | Pass | `GlobalSearchTests` (five modules, failing module doesn't hide others, stale results dropped, account identity kept, duplicate names apart, coverage honest, capped with total); screenshots 09, 10 |
 | T18 | P1 | Pass | `MailAdvancedFilterTests`, `GlobalSearchTests.ANewerQueryDropsTheOlderResults`; Ctrl+K search, Enter, Esc, Down; 300 ms debounce. No search history is stored, so there is nothing to clear and no opt-out is needed |
-| T19 | P1 | Pass with limitation | `MailboxScaleTests` (index rebuild on open, flags keep body searchable), `AcceptanceTests.Removing_an_account_…`, `MailAdvancedFilterTests` (attachment names), `AttachmentTextTests`. Content search covers only plain-text files on this PC; PDF and Office files are searched by name |
+| T19 | P1 | Pass | `MailboxScaleTests` (index rebuild on open, flags keep body searchable), `AcceptanceTests.Removing_an_account_…`, `MailAdvancedFilterTests` (attachment names), `AttachmentTextTests` (allowlist, size/page/character limits, PDF text from a generated PDF, broken PDF rejected, read once, files only on the server never read, text removed with the file, upgrade from schema 2). The PDF child process was also run against a real file and a broken one in the single-file release build (exit 0 with the text; exit 2, no output). Office files are searched by name |
 | T20 | P0 | Pass | Store queries are parameterized (`BuildFtsMatch` keeps letters and digits only; LIKE wildcards escaped: `TheStoreMatchesAttachmentNamesLiterally…`); results only from configured accounts; local search never calls a server; snippets plain text; no query text logged |
 | T21 | P1 | **Partial** | Automation names on rows (`AccessibilityName` with unread, flagged, attachments, full date), resize edges and scope chip; headings on group headers; polite live regions for counts and search status; color never the only signal (dot plus weight, edge, text). Not done: a recorded Narrator pass and checks at 150 and 200 % text scaling |
 | T22 | P1 | **Partial** | `PaneLayoutTests`, `UiDesignTests` gutters, `MailColumnLayoutTests` (columns adapt, nothing overlaps); screenshots at 1024×768, 1280×760, 1440×860, 1600×1000. Not done: 125, 150 and 200 % Windows scaling |
 | T23 | P1 | Pass | Benchmark (§3.1); `MailUiScaleTests` (15 accounts, nested folders, non-Latin senders); memory flat over 300 switches |
-| T24 | P0 | Pass | Full suite; `AcceptanceTests.Config_*` (newer file refused, damaged write recovered); database schema 2 adds four columns and keeps every row (`MailThreadsTests.AnOlderDatabaseGainsTheColumnsAndKeepsItsMessages`); new settings are optional fields with defaults |
+| T24 | P0 | Pass | Full suite; `AcceptanceTests.Config_*` (newer file refused, damaged write recovered); database schemas 2 and 3 add columns and keep every row (`MailThreadsTests.AnOlderDatabaseGainsTheColumnsAndKeepsItsMessages`, `AttachmentTextTests.AnOlderDatabaseGainsTheAttachmentTextColumns`); new settings are optional fields with defaults |
 
 ## 3. Measurements and decisions
 
@@ -84,7 +84,7 @@ No target was relaxed. Seeding 100,000 headers takes about 10 s one time and is 
 
 ### 3.3 Search coverage stated in the product
 
-- The Mail group says what it covered: mail kept on this PC; messages whose body isn't downloaded, by sender and subject only; attachments by name, and the text only of plain-text files on this PC; any active list filters.
+- The Mail group says what it covered: mail kept on this PC; messages whose body isn't downloaded, by sender and subject only; attachments by name, and the text of PDF and plain-text files on this PC (with how many are not read yet); any active list filters.
 - The results panel says the cloud archive and mail servers are not searched.
 
 ### 3.4 Cloud archive
@@ -169,7 +169,7 @@ Earlier P0 shell and sidebar work landed before `0e51f19`.
 | 150, 151 | Account/folder scope | Fixed | Module scope follows the selected account and folder; account filter in All mail |
 | 152, 153 | Local/cloud and active/archive search | Fixed | Cloud archive is a separate explicit source (§3.4); local results never depend on it |
 | 154 | Advanced search | Fixed | `MailAdvancedFilterTests`; filter dialog (screenshot 13) |
-| 155 | Attachment content search | Fixed, with limitation | Plain-text files on this PC (`AttachmentTextTests`); other formats by name (§5) |
+| 155 | Attachment content search | Fixed, with limitation | PDF and plain-text files on this PC, read once after download (`AttachmentTextTests`); Office files by name (§5) |
 | 156, 157 | History and shortcuts | Fixed | No history stored (nothing to leak or clear); Ctrl+K, Enter, Esc, arrows |
 | 158 | Scope on module switching | Fixed | All persists; All mail falls back in other modules (`GlobalSearchTests`) |
 | 159, 160 | Result origin and source coverage | Fixed | Account · folder on every mail result; coverage line per module |
@@ -179,7 +179,7 @@ Earlier P0 shell and sidebar work landed before `0e51f19`.
 ## 5. Known limitations (accepted for Dev)
 
 1. **Conversations and Cc need fresh headers.** Mail synced before schema 2 has no Cc, Reply-To or thread headers; those messages are listed on their own until the server sends them again. The IMAP References fetch is covered by unit tests, not yet by a live server run (Dev mail stays in Mailpit).
-2. **Attachment content search.** It covers plain-text files already on this PC (.txt, .csv, .md, .log; up to 1 MB each, 200 per query) and reads them at query time. PDF and Office files are searched by name. No separately reviewed parser was added.
+2. **Attachment content search.** Covers PDF files (up to 10 MB, first 50 pages) and plain-text files (.txt, .csv, .md, .log, up to 1 MB) already on this PC, up to 200,000 characters each. PDFs are read by PdfPig 0.1.16 (managed, Apache-2.0) in a separate process with a 20 s limit at low priority; nothing in a file runs, and nothing is downloaded to be read. Scanned PDFs without a text layer have no text (no OCR). Office files and archives are searched by name only.
 3. **"Add contact" from the reader.** Not offered: contacts come from Microsoft 365 or Google, and there is no local write path yet.
 4. **Manual checks not executed:**
    - Windows scaling at 125, 150 and 200 %;
@@ -191,8 +191,9 @@ Earlier P0 shell and sidebar work landed before `0e51f19`.
 
 ## 6. Migration and rollback
 
+- **Database schema 3 (additive).** `attachments` gains `text_content` (null until read) and `text_state` (empty until read); `PRAGMA user_version` goes to 3. The text is removed with the attachment's file.
 - **Database schema 2 (additive).** `messages` gains `cc`, `reply_to`, `in_reply_to` and `refs` (text, empty by default), added on first start with `ALTER TABLE … ADD COLUMN` only when missing; `PRAGMA user_version` goes from 1 to 2. No row is rewritten or removed. A refresh that lacks these headers keeps the stored ones.
-- **New read queries:** `ListPageAsync`, `SearchPageAsync`, `FindByAttachmentNameAsync`, `ListDownloadedAttachmentsAsync`.
+- **New read queries:** `ListPageAsync`, `SearchPageAsync`, `FindByAttachmentNameAsync`, `ListAttachmentsToReadAsync`, `CountAttachmentsToReadAsync`, `FindByAttachmentTextAsync`; one write, `SetAttachmentTextAsync`.
 - **New settings are optional fields** with defaults:
   - `Layout.MailColumnFrom`, `MailColumnAccount`, `MailColumnReceived`, `MailSort`, `MailSortDescending`, `SearchReach`;
   - `Appearance.GroupMailByDate`, `Appearance.GroupMailByThread`;

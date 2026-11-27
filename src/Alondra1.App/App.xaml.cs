@@ -12,6 +12,14 @@ public partial class App : Application
 
     private async void OnStartup(object sender, StartupEventArgs e)
     {
+        // Attachment search (Mail UI spec §8.3): this process only reads one PDF's text and exits. It opens no window,
+        // services or settings; the app runs it with a time limit and stops it if it takes too long.
+        if (e.Args is [PdfTextProcess.Flag, var pdf])
+        {
+            Shutdown(PdfTextProcess.RunChild(pdf));
+            return;
+        }
+
         Arguments = e.Args;
         Alondra1.Mail.MimeHeaders.EnsureCharsets();
         ShutdownMode = ShutdownMode.OnMainWindowClose;

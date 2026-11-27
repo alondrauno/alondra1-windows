@@ -192,11 +192,12 @@ public sealed record MailSearchPage(IReadOnlyList<StoredMessage> Messages, int? 
 public sealed class MailSearchSource(
     Func<string, CancellationToken, Task<MailSearchPage>> search,
     IReadOnlyList<AccountConfig> accounts,
-    Func<string>? filters = null) : ISearchSource
+    Func<string>? filters = null,
+    Func<string>? notes = null) : ISearchSource
 {
     /// <summary>For a search that returns every match (the total is the number returned).</summary>
-    public MailSearchSource(Func<string, CancellationToken, Task<IReadOnlyList<StoredMessage>>> all, IReadOnlyList<AccountConfig> accounts, Func<string>? filters = null)
-        : this(async (q, ct) => new MailSearchPage(await all(q, ct).ConfigureAwait(true)), accounts, filters)
+    public MailSearchSource(Func<string, CancellationToken, Task<IReadOnlyList<StoredMessage>>> all, IReadOnlyList<AccountConfig> accounts, Func<string>? filters = null, Func<string>? notes = null)
+        : this(async (q, ct) => new MailSearchPage(await all(q, ct).ConfigureAwait(true)), accounts, filters, notes)
     {
     }
 
@@ -228,7 +229,9 @@ public sealed class MailSearchSource(
         var total = Math.Max(unique.Count, page.Total ?? 0);
         var coverage = accounts.Count == 0 ? "No mail account is set up."
             : $"Mail kept on this PC in {Plural(accounts.Count, "account")}" + (headersOnly ? "; some messages only by sender and subject (body not downloaded)." : ".")
-              + " Attachments by name; text only of plain-text files on this PC.";
+              + " Attachments by name, and the text of PDF and plain-text files on this PC.";
+        if (notes?.Invoke() is { Length: > 0 } note)
+            coverage += " " + note;
         if (filters?.Invoke() is { Length: > 0 } active)
             coverage += $" Filtered: {active}.";
         return new SearchGroup(SearchModule.Mail, hits, total, coverage);

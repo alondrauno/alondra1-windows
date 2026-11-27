@@ -1126,6 +1126,7 @@ public sealed partial class MainViewModel : ObservableObject
             }).ConfigureAwait(true);
         await RefreshNavigationAsync().ConfigureAwait(true);
         SaveConfig();
+        ReadAttachmentTextSoon();
         foreach (var detail in degraded.Distinct())
             Dialogs.Alert(detail, "Alondra1", MessageBoxButton.OK, MessageBoxImage.Information);
         await ReloadMessagesAsync().ConfigureAwait(true);
@@ -2020,7 +2021,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The local adapter of a module for the shared search. Nothing is sent to a server.</summary>
     private ISearchSource CreateSearchSource(SearchModule module) => module switch
     {
-        SearchModule.Mail => new MailSearchSource(SearchAllMailAsync, MailAccounts, () => MailListView.Describe(Filter, AccountLabel)),
+        SearchModule.Mail => new MailSearchSource(SearchAllMailAsync, MailAccounts, () => MailListView.Describe(Filter, AccountLabel), AttachmentCoverage),
         SearchModule.Todo => new TaskSearchSource(() => Todo.Board),
         SearchModule.Notes => new NoteSearchSource(() => Notes.Board),
         SearchModule.Calendar => new CalendarSearchSource(() => _events, () => _eventsCoverage),
@@ -2077,32 +2078,44 @@ public sealed partial class MainViewModel : ObservableObject
 
     private const int SearchPageSize = 200;
 
-    /// <summary>Plain-text attachments already on this PC whose text matches (bounded; see <see cref="AttachmentText"/>).</summary>
-    private async Task<IReadOnlyList<MessageKey>> AttachmentTextMatchesAsync(string query, CancellationToken cancellationToken)
+    private Task<IReadOnlyList<MessageKey>> AttachmentTextMatchesAsync(string query, CancellationToken cancellationToken) =>
+        _services.Store.FindByAttachmentTextAsync(null, query, cancellationToken);
+
+    /// <summary>Downloaded attachments whose text is not read yet (shown in the search coverage line).</summary>
+    private int _attachmentsToRead;
+    private Task? _attachmentReading;
+
+    /// <summary>
+    /// Reads the text of newly downloaded attachments (plain text here, PDFs in a separate process), a batch at a time,
+    /// in the background after sync. One run at a time; it stops when nothing is left or the window closes.
+    /// </summary>
+    public void ReadAttachmentTextSoon()
     {
-        var terms = Alondra1.Core.Search.SearchText.Terms(query);
-        if (terms.Length == 0)
-            return [];
-        var found = new List<MessageKey>();
-        var candidates = (await _services.Store.ListDownloadedAttachmentsAsync(AttachmentText.MaxBytes, AttachmentText.MaxFiles * 4, cancellationToken).ConfigureAwait(true))
-            .Where(AttachmentText.IsSearchable).Take(AttachmentText.MaxFiles);
-        foreach (var attachment in candidates)
+        if (IsDemo || _attachmentReading is { IsCompleted: false })
+            return;
+        _attachmentReading = Task.Run(async () =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            var reader = new AttachmentTextReader(_services.Store, _services.Files.Resolve, PdfTextProcess.ReadAsync);
             try
             {
-                await using var stream = File.OpenRead(_services.Files.Resolve(attachment.CacheRelativePath!));
-                if (await AttachmentText.MatchesAsync(stream, terms, cancellationToken).ConfigureAwait(true))
-                    found.Add(new MessageKey(attachment.AccountId, attachment.FolderId, attachment.Uid));
+                for (var batch = 0; batch < 40 && await reader.ReadPendingAsync(10, CancellationToken.None).ConfigureAwait(false) > 0; batch++)
+                    _attachmentsToRead = await _services.Store.CountAttachmentsToReadAsync(CancellationToken.None).ConfigureAwait(false);
+                _attachmentsToRead = await _services.Store.CountAttachmentsToReadAsync(CancellationToken.None).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
             {
-                // A file removed or locked since it was listed: skipped, the rest still count.
+                // Reading attachment text is best effort: search still finds them by name.
             }
-        }
-
-        return found;
+        });
     }
+
+    /// <summary>Extra coverage for mail search: attachments not read yet.</summary>
+    private string AttachmentCoverage() => _attachmentsToRead switch
+    {
+        0 => "",
+        1 => "1 attachment on this PC is not read yet.",
+        var n => $"{n} attachments on this PC are not read yet.",
+    };
 
     private string AccountLabel(string id) => MailAccounts.FirstOrDefault(a => a.Id == id) is { } a ? ComposeIdentity.Label(a) : id;
 

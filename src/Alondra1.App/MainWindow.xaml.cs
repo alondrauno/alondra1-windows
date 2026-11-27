@@ -74,6 +74,8 @@ public partial class MainWindow : Window
         {
             Trace("await model.InitializeAsync();");
             await model.InitializeAsync();
+            // Attachment text for search: files downloaded earlier (or before this version) are read in the background.
+            model.ReadAttachmentTextSoon();
             Trace("await StartTasksAsync();");
             await StartTasksAsync();
             FillSelectors();

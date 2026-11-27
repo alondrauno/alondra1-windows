@@ -405,7 +405,7 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         }
     }
 
-    public async Task<IReadOnlyList<StoredAttachment>> ListDownloadedAttachmentsAsync(long maxBytes, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<StoredAttachment>> ListAttachmentsToReadAsync(int limit, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -413,12 +413,80 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
             await using var command = Require().CreateCommand();
             command.CommandText = """
                 SELECT id, account_id, folder_id, uid, file_name, content_type, size, cache_path, downloaded, pinned, content_id
-                FROM attachments WHERE downloaded = 1 AND cache_path IS NOT NULL AND size <= $max
+                FROM attachments WHERE downloaded = 1 AND cache_path IS NOT NULL AND text_state = ''
                 ORDER BY rowid DESC LIMIT $limit
                 """;
-            command.Parameters.AddWithValue("$max", maxBytes);
             command.Parameters.AddWithValue("$limit", limit);
             return await ReadAttachmentsAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<int> CountAttachmentsToReadAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = Require().CreateCommand();
+            command.CommandText = "SELECT count(*) FROM attachments WHERE downloaded = 1 AND cache_path IS NOT NULL AND text_state = ''";
+            return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task SetAttachmentTextAsync(string id, string? text, string state, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = Require().CreateCommand();
+            command.CommandText = "UPDATE attachments SET text_content = $text, text_state = $state WHERE id = $id";
+            command.Parameters.AddWithValue("$text", (object?)text ?? DBNull.Value);
+            command.Parameters.AddWithValue("$state", state);
+            command.Parameters.AddWithValue("$id", id);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<MessageKey>> FindByAttachmentTextAsync(string? accountId, string query, CancellationToken cancellationToken)
+    {
+        var terms = Alondra1.Core.Search.SearchText.Terms(query);
+        if (terms.Length == 0)
+            return [];
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = Require().CreateCommand();
+            // The longest term narrows the rows in SQL (parameterized, wildcards escaped); every term is then checked here.
+            var narrow = terms.OrderByDescending(t => t.Length).First();
+            var sql = new StringBuilder("SELECT DISTINCT account_id, folder_id, uid, text_content FROM attachments WHERE text_state = 'read' AND text_content LIKE $narrow ESCAPE '\\'");
+            command.Parameters.AddWithValue("$narrow", "%" + EscapeLike(narrow) + "%");
+            if (!string.IsNullOrEmpty(accountId))
+            {
+                sql.Append(" AND account_id = $account");
+                command.Parameters.AddWithValue("$account", accountId);
+            }
+
+            command.CommandText = sql.ToString();
+            var found = new HashSet<MessageKey>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (Alondra1.Core.Search.AttachmentText.Matches(reader.GetString(3), terms))
+                    found.Add(new MessageKey(reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+            }
+
+            return found.ToList();
         }
         finally
         {
@@ -491,7 +559,8 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         try
         {
             await using var command = Require().CreateCommand();
-            command.CommandText = "UPDATE attachments SET cache_path = NULL, downloaded = 0 WHERE id = $id";
+            // The file is gone: its text goes too (same retention as the file); it is read again if downloaded again.
+            command.CommandText = "UPDATE attachments SET cache_path = NULL, downloaded = 0, text_content = NULL, text_state = '' WHERE id = $id";
             command.Parameters.AddWithValue("$id", id);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -926,7 +995,7 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
     private SqliteConnection Require() => _connection ?? throw new InvalidOperationException("The personal store is not open.");
 
     /// <summary>
-    /// Schema 2 (additive, safe to repeat): Cc, Reply-To and thread headers on messages. Existing rows keep everything and
+    /// Schemas 2 and 3 (additive, safe to repeat): Cc, Reply-To and thread headers on messages; attachment text. Existing rows keep everything and
     /// get empty values, filled in as messages are fetched again; an older build simply ignores the extra columns.
     /// </summary>
     private static async Task MigrateThreadColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -950,10 +1019,27 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        command.CommandText = "PRAGMA user_version";
-        if ((long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L) < 2)
+        // Schema 3 (additive): attachment text for search, and whether it has been read.
+        command.CommandText = "SELECT name FROM pragma_table_info('attachments')";
+        var attachmentColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
-            command.CommandText = "PRAGMA user_version = 2";
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                attachmentColumns.Add(reader.GetString(0));
+        }
+
+        foreach (var (column, definition) in new[] { ("text_content", "TEXT"), ("text_state", "TEXT NOT NULL DEFAULT ''") })
+        {
+            if (attachmentColumns.Contains(column))
+                continue;
+            command.CommandText = $"ALTER TABLE attachments ADD COLUMN {column} {definition}";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        command.CommandText = "PRAGMA user_version";
+        if ((long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L) < 3)
+        {
+            command.CommandText = "PRAGMA user_version = 3";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 

@@ -48,8 +48,14 @@ public interface IPersonalStore
     Task<IReadOnlyList<StoredAttachment>> ListAttachmentsAsync(MessageKey key, CancellationToken cancellationToken);
     /// <summary>Messages with an attachment whose file name contains every word of <paramref name="text"/> (names only).</summary>
     Task<IReadOnlyList<MessageKey>> FindByAttachmentNameAsync(string? accountId, string text, CancellationToken cancellationToken);
-    /// <summary>Downloaded attachments small enough for content search (newest first, at most <paramref name="limit"/>).</summary>
-    Task<IReadOnlyList<StoredAttachment>> ListDownloadedAttachmentsAsync(long maxBytes, int limit, CancellationToken cancellationToken);
+    /// <summary>Downloaded attachments whose text has not been read yet (newest first, at most <paramref name="limit"/>).</summary>
+    Task<IReadOnlyList<StoredAttachment>> ListAttachmentsToReadAsync(int limit, CancellationToken cancellationToken);
+    /// <summary>How many downloaded attachments wait to be read (for the search coverage line).</summary>
+    Task<int> CountAttachmentsToReadAsync(CancellationToken cancellationToken);
+    /// <summary>Stores an attachment's text (null when not readable) and its reading state (see AttachmentText).</summary>
+    Task SetAttachmentTextAsync(string id, string? text, string state, CancellationToken cancellationToken);
+    /// <summary>Messages with an attachment whose stored text contains every word of <paramref name="query"/>.</summary>
+    Task<IReadOnlyList<MessageKey>> FindByAttachmentTextAsync(string? accountId, string query, CancellationToken cancellationToken);
     Task<StoredAttachment?> FindAttachmentAsync(string id, CancellationToken cancellationToken);
     Task SetAttachmentPinnedAsync(string id, bool pinned, CancellationToken cancellationToken);
     Task<IReadOnlyList<StoredAttachment>> ListUnpinnedAttachmentsAsync(string accountId, CancellationToken cancellationToken);
