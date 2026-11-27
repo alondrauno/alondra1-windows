@@ -111,6 +111,8 @@ public sealed class AppearanceSettings
     public bool GroupMailByAccount { get; set; } = true;
     /// <summary>Date headings (Today, Yesterday, Last week…) when the list is sorted by date; wins over account grouping.</summary>
     public bool GroupMailByDate { get; set; }
+    /// <summary>Conversations: messages linked by thread headers listed together, newest first (date sort only).</summary>
+    public bool GroupMailByThread { get; set; }
     public bool GroupTasksByFolder { get; set; }
     public BackgroundSettings Background { get; set; } = new();
 }

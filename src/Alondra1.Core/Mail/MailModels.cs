@@ -38,7 +38,15 @@ public sealed class StoredMessage
     public string Subject { get; set; } = "";
     public string FromName { get; set; } = "";
     public string FromAddress { get; set; } = "";
+    /// <summary>The To addresses, comma-separated.</summary>
     public string Recipients { get; set; } = "";
+    /// <summary>The Cc addresses, comma-separated (empty for mail synced before Cc was stored).</summary>
+    public string Cc { get; set; } = "";
+    /// <summary>Where replies should go when the sender asked for another address (Reply-To), comma-separated.</summary>
+    public string ReplyTo { get; set; } = "";
+    /// <summary>Thread headers (RFC 5322): the Message-ID this replies to, and the conversation's Message-IDs, space-separated.</summary>
+    public string InReplyTo { get; set; } = "";
+    public string References { get; set; } = "";
     public DateTimeOffset ReceivedUtc { get; set; }
     public string TimeLabel { get; set; } = "";
     public bool IsUnread { get; set; }
@@ -52,6 +60,11 @@ public sealed class StoredMessage
     public string AccountName { get; set; } = "";
     /// <summary>The date heading this row falls under when the list is grouped by date ("Today", "Last week"…); set on display.</summary>
     public string DateGroup { get; set; } = "";
+    /// <summary>Conversation view, set on display: messages in this row's conversation (shown on its newest message).</summary>
+    public int ThreadCount { get; set; } = 1;
+    /// <summary>Conversation view, set on display: an earlier message of a conversation, indented under the newest.</summary>
+    public bool IsThreadReply { get; set; }
+    public bool ShowThreadCount => ThreadCount > 1 && !IsThreadReply;
     public string? SendState { get; set; }
 
     public string AccessibilityName
@@ -62,7 +75,8 @@ public sealed class StoredMessage
             var flagged = IsFlagged ? "Flagged, " : "";
             var account = string.IsNullOrWhiteSpace(AccountName) ? "" : AccountName + ", ";
             var attachment = HasAttachments ? ", has attachments" : "";
-            return $"{unread}{flagged}{SenderLabel}, {account}{SubjectLabel}, {ReceivedFull}{attachment}";
+            var thread = IsThreadReply ? "Earlier in conversation, " : ShowThreadCount ? $"Conversation of {ThreadCount}, " : "";
+            return $"{thread}{unread}{flagged}{SenderLabel}, {account}{SubjectLabel}, {ReceivedFull}{attachment}";
         }
     }
 
@@ -142,6 +156,8 @@ public sealed class OutgoingMail
     public string Subject { get; set; } = "";
     public string TextBody { get; set; } = "";
     public string? InReplyTo { get; set; }
+    /// <summary>The References header of a reply: the parent's References plus its Message-ID, space-separated.</summary>
+    public string? References { get; set; }
     public List<OutgoingAttachment> Attachments { get; set; } = [];
 }
 

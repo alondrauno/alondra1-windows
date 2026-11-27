@@ -303,17 +303,25 @@ public sealed partial class MainViewModel : ObservableObject
     /// view of several accounts), or none. The window applies it to the list view.
     /// </summary>
     public string? GroupProperty =>
-        _services.Config.Appearance.GroupMailByDate && Sort == MailSortField.Date ? nameof(StoredMessage.DateGroup)
+        ShowConversations ? null
+        : _services.Config.Appearance.GroupMailByDate && Sort == MailSortField.Date ? nameof(StoredMessage.DateGroup)
         : _services.Config.Appearance.GroupMailByAccount && Scope.IsUnified ? nameof(StoredMessage.AccountName)
         : null;
 
-    /// <summary>0 together, 1 by account, 2 by date (Settings in the layout menu).</summary>
-    public int GroupingChoice => _services.Config.Appearance.GroupMailByDate ? 2 : _services.Config.Appearance.GroupMailByAccount ? 1 : 0;
+    /// <summary>Conversation view: on when chosen and the list is sorted by date.</summary>
+    public bool ShowConversations => _services.Config.Appearance.GroupMailByThread && Sort == MailSortField.Date;
+
+    /// <summary>0 together, 1 by account, 2 by date, 3 conversations (Settings in the layout menu).</summary>
+    public int GroupingChoice => _services.Config.Appearance.GroupMailByThread ? 3 : _services.Config.Appearance.GroupMailByDate ? 2 : _services.Config.Appearance.GroupMailByAccount ? 1 : 0;
 
     public void SetGrouping(int choice)
     {
+        var conversations = _services.Config.Appearance.GroupMailByThread;
+        _services.Config.Appearance.GroupMailByThread = choice == 3;
         _services.Config.Appearance.GroupMailByDate = choice == 2;
         _services.Config.Appearance.GroupMailByAccount = choice == 1;
+        if (conversations != (choice == 3))
+            _ = ReloadMessagesAsync();
         if (!IsDemo)
             SaveConfig();
         OnPropertyChanged(nameof(GroupProperty));
@@ -494,6 +502,27 @@ public sealed partial class MainViewModel : ObservableObject
         ? string.Join(Environment.NewLine, Alondra1.Core.Mail.ComposeIdentity.SplitAddresses(r)) : "";
     public bool HasReaderRecipients => ReaderRecipientsFull.Length > 0;
 
+    public string ReaderCcFull => SelectedMessage is { Cc: { Length: > 0 } cc }
+        ? string.Join(Environment.NewLine, Alondra1.Core.Mail.ComposeIdentity.SplitAddresses(cc)) : "";
+    public bool HasReaderCc => ReaderCcFull.Length > 0;
+
+    /// <summary>Reply-To, shown only when it differs from the sender (replies go there).</summary>
+    public string ReaderReplyToFull => SelectedMessage is { ReplyTo: { Length: > 0 } rt } m
+        && !string.Equals(rt.Trim(), m.FromAddress.Trim(), StringComparison.OrdinalIgnoreCase)
+        ? string.Join(Environment.NewLine, Alondra1.Core.Mail.ComposeIdentity.SplitAddresses(rt)) : "";
+    public bool HasReaderReplyTo => ReaderReplyToFull.Length > 0;
+
+    /// <summary>The header line under the sender: "To a, b · Cc c".</summary>
+    private static string RecipientLine(string? to, string? cc)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(to))
+            parts.Add("To " + to.Trim());
+        if (!string.IsNullOrWhiteSpace(cc))
+            parts.Add("Cc " + cc.Trim());
+        return string.Join(" · ", parts);
+    }
+
     [ObservableProperty]
     private bool _readerDetailsOpen;
 
@@ -606,7 +635,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (body is not null)
             ReaderBody = body.Text;
         if (!string.IsNullOrWhiteSpace(recipients))
-            ReaderTo = "To " + recipients;
+            ReaderTo = RecipientLine(recipients, SelectedMessage?.Cc);
         Attachments.Clear();
         foreach (var attachment in body?.Attachments ?? [])
             Attachments.Add(new AttachmentRow(attachment));
@@ -885,7 +914,7 @@ public sealed partial class MainViewModel : ObservableObject
                 ? message.FromName
                 : $"{message.FromName} <{message.FromAddress}>";
             ReaderMeta = $"{message.AccountName} · {message.ReceivedUtc.ToLocalTime():ddd d MMM yyyy, HH:mm}";
-            ReaderTo = string.IsNullOrWhiteSpace(message.Recipients) ? "" : "To " + message.Recipients;
+            ReaderTo = RecipientLine(message.Recipients, message.Cc);
             ReaderStatus = message.SendState ?? AvailabilityLabel(message);
             ReaderBody = string.IsNullOrWhiteSpace(message.Preview) ? "" : message.Preview;
             if (_fixture is null || message.AccountId != "file")
@@ -897,7 +926,8 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ReaderTo));
         OnPropertyChanged(nameof(HasReaderTo));
         foreach (var name in new[] { nameof(HasMessage), nameof(ReaderSenderName), nameof(ReaderSenderAddress), nameof(HasReaderSenderAddress), nameof(ReaderInitials),
-            nameof(ReaderAccountLabel), nameof(ReaderDateFull), nameof(ReaderRecipientsFull), nameof(HasReaderRecipients), nameof(ReaderEmptyTitle), nameof(ReaderEmptyDetail) })
+            nameof(ReaderAccountLabel), nameof(ReaderDateFull), nameof(ReaderRecipientsFull), nameof(HasReaderRecipients),
+            nameof(ReaderCcFull), nameof(HasReaderCc), nameof(ReaderReplyToFull), nameof(HasReaderReplyTo), nameof(ReaderEmptyTitle), nameof(ReaderEmptyDetail) })
             OnPropertyChanged(name);
         RenderReader();
 
@@ -1401,7 +1431,13 @@ public sealed partial class MainViewModel : ObservableObject
                 message.AccountName = name;
         }
 
-        Messages.ReplaceAll(found);
+        // Conversations: each at its newest message, earlier messages indented under it (thread headers only).
+        IReadOnlyList<StoredMessage> rows = found;
+        if (ShowConversations)
+            rows = MailThreads.Arrange(found);
+        else
+            MailThreads.Clear(found);
+        Messages.ReplaceAll(rows);
         var keep = previous is null ? null
             : Messages.FirstOrDefault(m => m.AccountId == previous.AccountId && m.FolderId == previous.FolderId && m.Uid == previous.Uid);
         SelectMessage(keep ?? Messages.FirstOrDefault());
@@ -2178,13 +2214,17 @@ public sealed partial class MainViewModel : ObservableObject
             return null;
         // The reply is sent from the account that received the message (Mail UI spec §3.2), never the first account.
         var account = MailAccounts.FirstOrDefault(a => a.Id == message.AccountId);
+        // Reply goes to Reply-To when the sender set it; Reply all keeps Cc in Cc, without me (Mail UI spec §3.2).
+        var to = all ? ComposeIdentity.ReplyAllRecipients(message, account?.Address ?? "") : ComposeIdentity.ReplyTargets(message);
         return new OutgoingMail
         {
             AccountId = ComposeIdentity.DefaultAccount(MailAccounts, Scope, message.AccountId, null),
-            To = all ? ComposeIdentity.ReplyAllRecipients(message, account?.Address ?? "") : [message.FromAddress],
+            To = to,
+            Cc = all ? ComposeIdentity.ReplyAllCc(message, account?.Address ?? "", to) : [],
             Subject = message.Subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase) ? message.Subject : "Re: " + message.Subject,
             TextBody = $"\n\n---\n{ReaderBody}",
             InReplyTo = message.MessageId,
+            References = MailThreads.ReferencesFor(message),
         };
     }
 

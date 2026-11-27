@@ -28,6 +28,7 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
             command.CommandText = Schema;
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             await MigrateSearchKeysAsync(_connection, cancellationToken).ConfigureAwait(false);
+            await MigrateThreadColumnsAsync(_connection, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -639,6 +640,10 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
                 Preview = reader.GetString(ordinal["preview"]),
                 AccountName = reader.GetString(ordinal["account_name"]),
                 SendState = reader.IsDBNull(ordinal["send_state"]) ? null : reader.GetString(ordinal["send_state"]),
+                Cc = reader.GetString(ordinal["cc"]),
+                ReplyTo = reader.GetString(ordinal["reply_to"]),
+                InReplyTo = reader.GetString(ordinal["in_reply_to"]),
+                References = reader.GetString(ordinal["refs"]),
             });
         }
 
@@ -722,14 +727,19 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         await using var command = connection.CreateCommand();
         command.Transaction = tx;
         command.CommandText = """
-            INSERT INTO messages(account_id, folder_id, uid, message_id, subject, from_name, from_address, recipients, received_utc, time_label, is_unread, is_flagged, has_attachments, body_downloaded, local_only, availability, pop_uidl, preview, account_name, send_state)
-            VALUES ($a,$f,$u,$mid,$subject,$from,$addr,$to,$received,$label,$unread,$flag,$attach,$body,$local,$avail,$uidl,$preview,$name,$send)
+            INSERT INTO messages(account_id, folder_id, uid, message_id, subject, from_name, from_address, recipients, received_utc, time_label, is_unread, is_flagged, has_attachments, body_downloaded, local_only, availability, pop_uidl, preview, account_name, send_state, cc, reply_to, in_reply_to, refs)
+            VALUES ($a,$f,$u,$mid,$subject,$from,$addr,$to,$received,$label,$unread,$flag,$attach,$body,$local,$avail,$uidl,$preview,$name,$send,$cc,$replyto,$inreplyto,$refs)
             ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
               message_id = excluded.message_id, subject = excluded.subject, from_name = excluded.from_name, from_address = excluded.from_address,
               recipients = excluded.recipients, received_utc = excluded.received_utc, time_label = excluded.time_label, is_unread = excluded.is_unread,
               is_flagged = excluded.is_flagged, has_attachments = excluded.has_attachments, body_downloaded = excluded.body_downloaded,
               local_only = excluded.local_only, availability = excluded.availability, pop_uidl = excluded.pop_uidl, preview = excluded.preview,
-              account_name = excluded.account_name, send_state = excluded.send_state
+              account_name = excluded.account_name, send_state = excluded.send_state,
+              -- Thread and Cc headers only replace stored ones when the new copy has them (a flag refresh may not).
+              cc = CASE WHEN excluded.cc <> '' THEN excluded.cc ELSE messages.cc END,
+              reply_to = CASE WHEN excluded.reply_to <> '' THEN excluded.reply_to ELSE messages.reply_to END,
+              in_reply_to = CASE WHEN excluded.in_reply_to <> '' THEN excluded.in_reply_to ELSE messages.in_reply_to END,
+              refs = CASE WHEN excluded.refs <> '' THEN excluded.refs ELSE messages.refs END
             """;
         BindMessage(command, message);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -907,9 +917,48 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         command.Parameters.AddWithValue("$preview", message.Preview);
         command.Parameters.AddWithValue("$name", message.AccountName);
         command.Parameters.AddWithValue("$send", (object?)message.SendState ?? DBNull.Value);
+        command.Parameters.AddWithValue("$cc", message.Cc ?? "");
+        command.Parameters.AddWithValue("$replyto", message.ReplyTo ?? "");
+        command.Parameters.AddWithValue("$inreplyto", message.InReplyTo ?? "");
+        command.Parameters.AddWithValue("$refs", message.References ?? "");
     }
 
     private SqliteConnection Require() => _connection ?? throw new InvalidOperationException("The personal store is not open.");
+
+    /// <summary>
+    /// Schema 2 (additive, safe to repeat): Cc, Reply-To and thread headers on messages. Existing rows keep everything and
+    /// get empty values, filled in as messages are fetched again; an older build simply ignores the extra columns.
+    /// </summary>
+    private static async Task MigrateThreadColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var tx = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "SELECT name FROM pragma_table_info('messages')";
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                existing.Add(reader.GetString(0));
+        }
+
+        foreach (var column in new[] { "cc", "reply_to", "in_reply_to", "refs" })
+        {
+            if (existing.Contains(column))
+                continue;
+            command.CommandText = $"ALTER TABLE messages ADD COLUMN {column} TEXT NOT NULL DEFAULT ''";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        command.CommandText = "PRAGMA user_version";
+        if ((long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L) < 2)
+        {
+            command.CommandText = "PRAGMA user_version = 2";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     private static async Task MigrateSearchKeysAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {

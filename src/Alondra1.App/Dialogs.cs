@@ -708,6 +708,7 @@ public static class Dialogs
         };
         AccountConfig? Chosen() => from.SelectedIndex >= 0 && from.SelectedIndex < accounts.Count ? accounts[from.SelectedIndex] : null;
         var to = Field(string.Join(", ", mail.To));
+        var cc = Field(string.Join(", ", mail.Cc));
         var subject = Field(mail.Subject);
         var body = new TextBox
         {
@@ -720,20 +721,22 @@ public static class Dialogs
         };
         System.Windows.Automation.AutomationProperties.SetName(from, "From");
         System.Windows.Automation.AutomationProperties.SetName(to, "To");
+        System.Windows.Automation.AutomationProperties.SetName(cc, "Cc");
         System.Windows.Automation.AutomationProperties.SetName(subject, "Subject");
         System.Windows.Automation.AutomationProperties.SetName(body, "Message");
 
-        // From, To, and Subject share one label column; the editor takes the remaining height.
+        // From, To, Cc, and Subject share one label column; the editor takes the remaining height.
         var layout = new Grid { Margin = new Thickness(20, 16, 20, 16) };
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
         layout.ColumnDefinitions.Add(new ColumnDefinition());
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < 4; i++)
             layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition());
         AddRow(0, "From", from);
         AddRow(1, "To", to);
-        AddRow(2, "Subject", subject);
-        Grid.SetRow(body, 3);
+        AddRow(2, "Cc", cc);
+        AddRow(3, "Subject", subject);
+        Grid.SetRow(body, 4);
         Grid.SetColumnSpan(body, 2);
         layout.Children.Add(body);
         Frames.TryGetValue(window, out var parts);
@@ -768,7 +771,7 @@ public static class Dialogs
                 return;
             }
 
-            Fill(mail, from, to, subject, body);
+            Fill(mail, from, to, cc, subject, body);
             if (Chosen() is not { } selected)
                 return;
             mail.AccountId = selected.Id;
@@ -783,7 +786,7 @@ public static class Dialogs
                 return;
             }
 
-            Fill(mail, from, to, subject, body);
+            Fill(mail, from, to, cc, subject, body);
             if (Chosen() is not { } selected)
                 return;
             mail.AccountId = selected.Id;
@@ -808,9 +811,10 @@ public static class Dialogs
         }
     }
 
-    private static void Fill(OutgoingMail mail, ComboBox from, TextBox to, TextBox subject, TextBox body)
+    private static void Fill(OutgoingMail mail, ComboBox from, TextBox to, TextBox cc, TextBox subject, TextBox body)
     {
         mail.To = to.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        mail.Cc = cc.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         mail.Subject = subject.Text;
         mail.TextBody = body.Text;
     }

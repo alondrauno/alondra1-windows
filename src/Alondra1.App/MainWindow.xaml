@@ -300,8 +300,8 @@
                     <DockPanel Margin="0,0,0,8">
                       <TextBlock Text="Group" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
                       <ComboBox x:Name="MailGrouping" Width="150" HorizontalAlignment="Right" SelectionChanged="MailGrouping_Changed" AutomationProperties.Name="Group messages"
-                                ToolTip="By account applies in views of several accounts; by date while the list is sorted by date.">
-                        <ComboBoxItem Content="Together"/><ComboBoxItem Content="By account"/><ComboBoxItem Content="By date"/>
+                                ToolTip="By account applies in views of several accounts; by date and conversations while the list is sorted by date.">
+                        <ComboBoxItem Content="Together"/><ComboBoxItem Content="By account"/><ComboBoxItem Content="By date"/><ComboBoxItem Content="Conversations"/>
                       </ComboBox>
                     </DockPanel>
                     <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,0,0,8"/>
@@ -693,11 +693,20 @@
                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" FontSize="12" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" Margin="6,0,8,0" ToolTip="{Binding AccountName}"
                                    Visibility="{Binding DataContext.ShowAccountColumn, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVis}}"/>
-                        <!-- Comfortable density: the subject, then the start of the message in muted text, on one line. -->
-                        <TextBlock Grid.Column="3" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="4,0,8,0"
+                        <!-- Comfortable density: the subject, then the start of the message in muted text, on one line.
+                             Conversations: the newest message shows how many there are; earlier ones are indented under it. -->
+                        <DockPanel Grid.Column="3" Margin="4,0,8,0" LastChildFill="True">
+                        <Border DockPanel.Dock="Left" Background="{DynamicResource SubtleBrush}" CornerRadius="8" Padding="6,0" Margin="0,0,6,0" VerticalAlignment="Center"
+                                Visibility="{Binding ShowThreadCount, Converter={StaticResource BoolVis}}" ToolTip="Messages in this conversation">
+                          <TextBlock Text="{Binding ThreadCount}" FontSize="11" Foreground="{DynamicResource MutedBrush}"/>
+                        </Border>
+                        <ui:Alondra1Icon DockPanel.Dock="Left" Kind="Reply" IconSize="12" Margin="10,0,6,0" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"
+                                          Visibility="{Binding IsThreadReply, Converter={StaticResource BoolVis}}" ToolTip="Earlier in this conversation"/>
+                        <TextBlock TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                    Style="{StaticResource UnreadText}" ToolTip="{Binding SubjectLabel}">
                           <Run Text="{Binding SubjectLabel, Mode=OneWay}"/><Run Text="{Binding SnippetSuffix, Mode=OneWay}" FontWeight="Normal" Foreground="{DynamicResource MutedBrush}"/>
                         </TextBlock>
+                        </DockPanel>
                         <ui:Alondra1Icon Grid.Column="4" Kind="Attachment" IconSize="14" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
                                           ToolTip="Has attachments" Visibility="{Binding HasAttachments, Converter={StaticResource BoolVis}}"/>
                         <TextBlock Grid.Column="5" Text="{Binding TimeLabel}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
@@ -816,6 +825,8 @@
                       <RowDefinition Height="Auto"/>
                       <RowDefinition Height="Auto"/>
                       <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Text="From" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
                     <TextBox Grid.Column="1" Text="{Binding ReaderSender, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
@@ -823,12 +834,20 @@
                                Visibility="{Binding HasReaderRecipients, Converter={StaticResource BoolVis}}"/>
                     <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ReaderRecipientsFull, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"
                              Visibility="{Binding HasReaderRecipients, Converter={StaticResource BoolVis}}"/>
-                    <TextBlock Grid.Row="2" Text="Account" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
-                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ReaderAccountLabel, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
-                    <TextBlock Grid.Row="3" Text="Received" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
-                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ReaderDateFull, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
-                    <TextBlock Grid.Row="4" Text="Storage" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,0"/>
-                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ReaderStatus, Mode=OneWay}" Style="{StaticResource ReadOnlyText}"/>
+                    <TextBlock Grid.Row="2" Text="Cc" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"
+                               Visibility="{Binding HasReaderCc, Converter={StaticResource BoolVis}}"/>
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ReaderCcFull, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"
+                             Visibility="{Binding HasReaderCc, Converter={StaticResource BoolVis}}"/>
+                    <TextBlock Grid.Row="3" Text="Reply to" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"
+                               Visibility="{Binding HasReaderReplyTo, Converter={StaticResource BoolVis}}"/>
+                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ReaderReplyToFull, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"
+                             Visibility="{Binding HasReaderReplyTo, Converter={StaticResource BoolVis}}"/>
+                    <TextBlock Grid.Row="4" Text="Account" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
+                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ReaderAccountLabel, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="5" Text="Received" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
+                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding ReaderDateFull, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="6" Text="Storage" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,0"/>
+                    <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding ReaderStatus, Mode=OneWay}" Style="{StaticResource ReadOnlyText}"/>
                   </Grid>
                 </Border>
               </StackPanel>

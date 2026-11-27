@@ -340,7 +340,7 @@ public partial class MainWindow : Window
             _model.ReaderDetailsOpen = true;
         // --group=together|account|date and --density=compact|comfortable: list layout for snapshots.
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--group=", StringComparison.Ordinal)) is { } groupArg)
-            _model.SetGrouping(groupArg["--group=".Length..] switch { "account" => 1, "date" => 2, _ => 0 });
+            _model.SetGrouping(groupArg["--group=".Length..] switch { "account" => 1, "date" => 2, "conversations" => 3, _ => 0 });
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--density=", StringComparison.Ordinal)) is { } densityArg
             && Enum.TryParse<Density>(densityArg["--density=".Length..], ignoreCase: true, out var forcedDensity))
             _model.SetDensity(forcedDensity);

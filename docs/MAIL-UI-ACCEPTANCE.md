@@ -8,9 +8,9 @@ Repository: `alondra1-windows`, branch `main`. Record written 2026-11-27.
 | Item | Result |
 |---|---|
 | Build | .NET 10 SDK, Debug, `main` at the commit that adds this file |
-| Automated tests | `dotnet test`: **384 passed, 0 failed, 8 skipped** (skipped: live mail/cloud tests that need real accounts, the 10 GB mailbox test, and the opt-in §10 benchmark below, run separately) |
+| Automated tests | `dotnet test`: **391 passed, 0 failed, 8 skipped** (skipped: live mail/cloud tests that need real accounts, the 10 GB mailbox test, and the opt-in §10 benchmark below, run separately) |
 | §10 benchmark | `ALONDRA1_MAIL_UI_BENCH=1 dotnet test --filter Budgets_with_ten_and_fifteen_accounts_and_100k_headers`: **passed** |
-| Screenshots | `docs/screenshots/mail-ui/` (15 images, demo data and synthetic accounts only) |
+| Screenshots | `docs/screenshots/mail-ui/` (16 images, demo data and synthetic accounts only) |
 | Fixtures | Synthetic only: `SampleCatalog` (2 accounts, or `--demo-accounts=N` up to 15), `MailUiScaleTests.SeedAsync` (up to 15 accounts, 100,000 headers). No real credentials or mailboxes. |
 
 Dev machine for timings: 14 logical cores, 31 GB available to .NET, Windows 10.0.26300, .NET 10.0.15, SSD.
@@ -27,12 +27,12 @@ the gap is named and listed again in §5.
 | T02 | P1 | **Partial** | `UiDesignTests` (spacing tokens, light/dark define the same tokens, icons, gutters), `MailListPresentationTests.HighContrastMapsEveryThemeBrush`; screenshots 01–03, 11, 15. Not done: side-by-side check at every target size and scale, and a real Windows contrast theme (15 forces the mapping with normal system colors) |
 | T03 | P0 | Pass | `MailNavigationTests` (every account listed, even without mail; duplicate names by address; no accounts), `MailUiScaleTests.FifteenAccountsStayApart…`; screenshots 01, 04 (10 accounts: duplicate, long, Cyrillic names), 05 (15) |
 | T04 | P0 | Pass | `MailNavigationTests` (unified unread without double counting, unknown is not zero, nested folders, missing Archive is missing), `SpecialFoldersTests`, `MailListViewTests` (stable merge); account and date grouping optional (screenshots 02, 14) |
-| T05 | P0 | Pass | `ComposeIdentityTests` (default account, unified needs a choice, reply from the receiving account, account removed), `BulkActionsTests` (mixed accounts, missing folder, removed account, partial summary). Moving to an arbitrary folder is not offered, so that variant doesn't apply |
+| T05 | P0 | Pass | `ComposeIdentityTests` (default account, unified needs a choice, reply from the receiving account, account removed), `MailThreadsTests.ReplyGoesToReplyTo…` (Reply uses Reply-To; Reply all keeps Cc in Cc, without me), `BulkActionsTests` (mixed accounts, missing folder, removed account, partial summary). Moving to an arbitrary folder is not offered, so that variant doesn't apply |
 | T06 | P1 | Pass | `MailListTests.Disabled_message_actions_explain_why`, reader actions share the toolbar commands; layout menu (pane docking, density, grouping); screenshot 11 (1024 px) |
 | T07 | P1 | Pass | `MailColumnLayoutTests`, `MailListViewTests`, `MailAdvancedFilterTests`, `MailListPresentationTests`; screenshots 02, 04, 12, 14 |
-| T08 | P1 | **Partial** | Multi-select (Shift/Ctrl, count in header) and mixed-account bulk: `BulkActionsTests`. **Threads are not grouped**: the local store keeps no References/In-Reply-To headers for received mail, so every message is listed on its own; nothing is grouped by subject or across accounts |
+| T08 | P1 | Pass | Multi-select (Shift/Ctrl, count in header) and mixed-account bulk: `BulkActionsTests`. Conversations (Group → Conversations, date sort): `MailThreadsTests` (linked by Message-ID, In-Reply-To and References only; same subject without headers never grouped; same ids in two accounts stay apart; siblings of a missing parent linked; no headers falls back to single messages); screenshot 16 |
 | T09 | P0 | Pass | `MailListTests.Count_*`, list states (no account, empty folder, empty filter, loading with rows intact, not synced here, error), reader empty state; screenshots 01, 12; no column header over an empty list |
-| T10 | P1 | Pass | Reader header and Details (all recipients, receiving account, full date with UTC offset, storage); attachment area only with files (`M06_attachments_are_listed…`); screenshots 07, 08 |
+| T10 | P1 | Pass | Reader header and Details (To, Cc and Reply-To on their own lines, receiving account, full date with UTC offset, storage; screenshot 16); attachment area only with files (`M06_attachments_are_listed…`); screenshots 07, 08 |
 | T11 | P0 | Pass | `MailRenderingTests` M01–M12 (plain-only, alternative, newsletter, CID, quoted-printable/UTF-8, nested multiparts, wide content, malformed falls back), `MimeHeadersTests`; "Try HTML again" on renderer failure; screenshot 07 |
 | T12 | P0 | Pass | `M05` (remote images blocked until allowed, trackers always removed), `M10` (active content removed), `AcceptanceTests.Html_sanitizer_strips_scripts_handlers_and_remote_images`, `Data_images_are_limited_to_raster_types_and_size`; isolated WebView2 profile |
 | T13 | P1 | Pass | `AttachmentSafetyTests` (bytes must match type; mark of the web), `Risky_attachments_are_recognized`, `AttachmentTextTests` (no download or execution for search) |
@@ -46,7 +46,7 @@ the gap is named and listed again in §5.
 | T21 | P1 | **Partial** | Automation names on rows (`AccessibilityName` with unread, flagged, attachments, full date), resize edges and scope chip; headings on group headers; polite live regions for counts and search status; color never the only signal (dot plus weight, edge, text). Not done: a recorded Narrator pass and checks at 150 and 200 % text scaling |
 | T22 | P1 | **Partial** | `PaneLayoutTests`, `UiDesignTests` gutters, `MailColumnLayoutTests` (columns adapt, nothing overlaps); screenshots at 1024×768, 1280×760, 1440×860, 1600×1000. Not done: 125, 150 and 200 % Windows scaling |
 | T23 | P1 | Pass | Benchmark (§3.1); `MailUiScaleTests` (15 accounts, nested folders, non-Latin senders); memory flat over 300 switches |
-| T24 | P0 | Pass | Full suite; `AcceptanceTests.Config_*` (newer file refused, damaged write recovered); no database schema change in this work (new queries only); new settings are optional fields with defaults |
+| T24 | P0 | Pass | Full suite; `AcceptanceTests.Config_*` (newer file refused, damaged write recovered); database schema 2 adds four columns and keeps every row (`MailThreadsTests.AnOlderDatabaseGainsTheColumnsAndKeepsItsMessages`); new settings are optional fields with defaults |
 
 ## 3. Measurements and decisions
 
@@ -110,7 +110,8 @@ Commits for this spec on `main`, oldest first:
 - `e388c56` scale and sync scheduler;
 - `1ee03c3` grouping, snippets, high contrast, archive link;
 - `48245f0` bulk actions;
-- `9ca5e9b` empty states, attachment text, screenshots.
+- `9ca5e9b` empty states, attachment text, screenshots;
+- the commit that adds Cc, Reply-To and conversations (this file's later revision).
 
 Earlier P0 shell and sidebar work landed before `0e51f19`.
 
@@ -147,14 +148,14 @@ Earlier P0 shell and sidebar work landed before `0e51f19`.
 | 92 | Snippets | Fixed | Comfortable density shows the start of the message (screenshot 14) |
 | 93 | Date grouping | Fixed | Group by date while sorted by date (`MailListPresentationTests`; screenshot 14) |
 | 94–97 | Scrollbar, filters, background, column separation | Fixed | Header inset for the scroll bar; filter menu and chips; column edges drawn as separators |
-| 98 | Thread indicators and grouping | Limitation | No thread metadata stored for received mail; messages are listed individually and never grouped by subject or across accounts (§5) |
+| 98 | Thread indicators and grouping | Fixed | Conversations from thread headers with a count on the newest message and earlier ones indented (`MailThreadsTests`, screenshot 16) |
 | 99, 100, 101 | HTML failure, images, original formatting | Fixed | `MailRenderingTests` M02–M04, M11, M12; HTML failure bar with retry |
 | 102, 103 | Long raw URLs, link readability | Fixed | M01 and M03 (safe links), wrapping in plain text; M09 wide content contained |
 | 104, 105, 106 | Error notice, retry, remote content controls | Fixed | "Try HTML again"; remote image bar with load once or always for sender (screenshot 07) |
 | 107–110 | Body width, metadata separation, background, footer | Fixed | Plain text capped at 90ch; header block above body; neutral rendering surface |
 | 111 | Rendering mode controls | Fixed | HTML / Plain text switch in the reader header (screenshot 07) |
 | 112 | Attachment area | Fixed | Only when files exist (M06) |
-| 113–118 | Sender, recipients, account, initials, details, hierarchy | Fixed | Reader sender block and Details panel (screenshot 08) |
+| 113–118 | Sender, recipients, account, initials, details, hierarchy | Fixed | Reader sender block and Details panel with To, Cc, Reply-To (screenshots 08, 16) |
 | 119, 120 | Server status and local availability | Fixed | Availability label per message ("Available offline", headers only, on the server) |
 | 121, 122 | Action proximity, sender actions | Fixed | Reply/Reply all/Forward beside the sender; copy address, new mail to sender |
 | 123–129 | Global and per-account sync, progress, times, initial/incremental, partial, errors | Fixed | `AccountSyncStatusTests`, scheduler tests; last success never replaced by a failed attempt |
@@ -177,27 +178,25 @@ Earlier P0 shell and sidebar work landed before `0e51f19`.
 
 ## 5. Known limitations (accepted for Dev)
 
-1. **No thread grouping.** The local store doesn't keep References/In-Reply-To headers for received mail, so messages are listed individually.
+1. **Conversations and Cc need fresh headers.** Mail synced before schema 2 has no Cc, Reply-To or thread headers; those messages are listed on their own until the server sends them again. The IMAP References fetch is covered by unit tests, not yet by a live server run (Dev mail stays in Mailpit).
 2. **Attachment content search.** It covers plain-text files already on this PC (.txt, .csv, .md, .log; up to 1 MB each, 200 per query) and reads them at query time. PDF and Office files are searched by name. No separately reviewed parser was added.
-3. **Cc and Reply-To.** The local store keeps all recipients in one field, so the reader's Details panel lists them together.
-4. **"Add contact" from the reader.** Not offered: contacts come from Microsoft 365 or Google, and there is no local write path yet.
-5. **Manual checks not executed:**
+3. **"Add contact" from the reader.** Not offered: contacts come from Microsoft 365 or Google, and there is no local write path yet.
+4. **Manual checks not executed:**
    - Windows scaling at 125, 150 and 200 %;
    - a real Windows contrast theme (only the forced mapping is captured, screenshot 15);
    - a recorded Narrator pass;
    - 10 real provider accounts syncing at once (fixtures only; dev mail stays in Mailpit by owner decision).
-6. **Very wide fixed-layout newsletters.** These scroll horizontally inside the reading pane when it is narrower than the newsletter (screenshot 07). This follows the spec's rule of horizontal scroll only inside content that needs it.
-7. **Timing hardware.** Timings were measured on hardware stronger than the suggested reference machine.
+5. **Very wide fixed-layout newsletters.** These scroll horizontally inside the reading pane when it is narrower than the newsletter (screenshot 07). This follows the spec's rule of horizontal scroll only inside content that needs it.
+6. **Timing hardware.** Timings were measured on hardware stronger than the suggested reference machine.
 
 ## 6. Migration and rollback
 
-- **No database schema change.** This work adds only read queries:
-  - `ListPageAsync`, `SearchPageAsync`;
-  - `FindByAttachmentNameAsync`, `ListDownloadedAttachmentsAsync`.
+- **Database schema 2 (additive).** `messages` gains `cc`, `reply_to`, `in_reply_to` and `refs` (text, empty by default), added on first start with `ALTER TABLE … ADD COLUMN` only when missing; `PRAGMA user_version` goes from 1 to 2. No row is rewritten or removed. A refresh that lacks these headers keeps the stored ones.
+- **New read queries:** `ListPageAsync`, `SearchPageAsync`, `FindByAttachmentNameAsync`, `ListDownloadedAttachmentsAsync`.
 - **New settings are optional fields** with defaults:
   - `Layout.MailColumnFrom`, `MailColumnAccount`, `MailColumnReceived`, `MailSort`, `MailSortDescending`, `SearchReach`;
-  - `Appearance.GroupMailByDate`;
+  - `Appearance.GroupMailByDate`, `Appearance.GroupMailByThread`;
   - `AccountConfig.LastMailSyncUtc`;
   - `Reading.DefaultSendAccountId`.
-- **Rolling back.** An earlier build ignores these fields, and the configuration schema version is unchanged.
+- **Rolling back.** An earlier build ignores the new settings (the configuration schema version is unchanged) and the extra columns: it reads columns by name, and its inserts and updates leave the new ones untouched. The upgraded database stays readable by it.
 - **Data is untouched.** Accounts, message ids, drafts, folder mappings and cached mail are left as they are.

@@ -48,9 +48,32 @@ public static class ComposeIdentity
                 result.Add(address);
         }
 
-        Add(message.FromAddress);
+        foreach (var part in ReplyTargets(message))
+            Add(part);
         foreach (var part in SplitAddresses(message.Recipients))
             Add(part);
+        return result;
+    }
+
+    /// <summary>Who a reply goes to: the Reply-To addresses when the sender set them, otherwise the sender.</summary>
+    public static List<string> ReplyTargets(StoredMessage message)
+    {
+        var replyTo = SplitAddresses(message.ReplyTo).Select(Address).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return replyTo.Count > 0 ? replyTo : string.IsNullOrWhiteSpace(message.FromAddress) ? [] : [message.FromAddress.Trim()];
+    }
+
+    /// <summary>Reply all's Cc: the original Cc without me and without anyone already in To.</summary>
+    public static List<string> ReplyAllCc(StoredMessage message, string ownAddress, IEnumerable<string> to)
+    {
+        var seen = new HashSet<string>(to.Select(Address), StringComparer.OrdinalIgnoreCase) { ownAddress.Trim() };
+        var result = new List<string>();
+        foreach (var part in SplitAddresses(message.Cc))
+        {
+            var address = Address(part);
+            if (address.Length > 0 && seen.Add(address))
+                result.Add(address);
+        }
+
         return result;
     }
 

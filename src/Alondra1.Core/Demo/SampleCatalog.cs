@@ -22,13 +22,13 @@ public static class SampleCatalog
         ("Lea Hoffmann", "Re: Updated timeline", null),
         ("Facilities", "Access card collection", null),
         ("Samira Ali", "Workshop agenda", null),
-        ("Daniel Park", "Contract comments", null),
+        ("Daniel Park", "Re: Contract comments", null),
         ("Finance", "October expense report", null),
         ("Product Team", "Backlog review notes", null),
         ("Jamie Brooks", "Photo album link", null),
         ("Shipping", "Your order is on its way", null),
         ("Mina Torres", "Meeting moved to Tuesday", null),
-        ("Ravi Shah", "Question about the prototype", null),
+        ("Ravi Shah", "Contract comments", null),
         ("Operations", "Weekly team update", null),
         ("Sara Jensen", "Re: Lunch on Thursday", null),
         ("IT Helpdesk", "Scheduled maintenance", null),
@@ -85,6 +85,11 @@ public static class SampleCatalog
                     Availability = ItemAvailability.Downloaded,
                     Preview = body,
                     LocalOnly = false,
+                    // Thread headers and Cc, so the sample shows conversations and the reader's Cc line.
+                    MessageId = $"demo-{group}-{i}@example.test",
+                    InReplyTo = source.Subject == "Re: Contract comments" ? $"<demo-{group}-18@example.test>" : "",
+                    References = source.Subject == "Re: Contract comments" ? $"<demo-{group}-18@example.test>" : "",
+                    Cc = i == 0 ? "liam.weber@example.com, ava.patel@example.com" : "",
                 });
             }
         }
