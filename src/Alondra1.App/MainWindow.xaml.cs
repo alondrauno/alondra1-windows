@@ -323,6 +323,14 @@ public partial class MainWindow : Window
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--day=", StringComparison.Ordinal)) is { } day && int.TryParse(day["--day=".Length..], out var dayNumber))
             _model.SelectDay(_model.Days.FirstOrDefault(d => d.IsDay && d.Day == dayNumber));
         // --search-scope=Module|AllMail|All: the reach of the header search; --search=<text>: the search state.
+        // --mail-filter=unread,flagged,attachments: list filters (for snapshots of the filtered and empty-filtered states).
+        if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--mail-filter=", StringComparison.Ordinal)) is { } filterArg)
+        {
+            var parts = filterArg["--mail-filter=".Length..].Split(',');
+            _model.SetFilter(new MailListFilter(parts.Contains("unread"), parts.Contains("flagged"), parts.Contains("attachments")));
+            await Task.Delay(300);
+        }
+
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--search-scope=", StringComparison.Ordinal)) is { } reach)
             _model.Search.Choose(SearchScopes.ParseReach(reach["--search-scope=".Length..]));
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--search=", StringComparison.Ordinal)) is { } search)
@@ -815,6 +823,73 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuItem("Add or manage accounts…", () => _model.AccountsCommand.Execute(null)));
     }
+
+    // ---------- Message list filters and sort ----------
+
+    private void ListFilter_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } button)
+            return;
+        menu.Items.Clear();
+        var f = _model.Filter;
+        void Toggle(string header, bool on, MailListFilter next)
+        {
+            var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = on };
+            item.Click += (_, _) => _model.SetFilter(next);
+            menu.Items.Add(item);
+        }
+
+        Toggle("Unread", f.Unread, f with { Unread = !f.Unread });
+        Toggle("Flagged", f.Flagged, f with { Flagged = !f.Flagged });
+        Toggle("Has attachments", f.Attachments, f with { Attachments = !f.Attachments });
+        if (_model.Scope.IsUnified && _model.MailAccounts.Count > 1)
+        {
+            menu.Items.Add(new Separator());
+            Toggle("All accounts", f.AccountId is null, f with { AccountId = null });
+            foreach (var account in _model.MailAccounts)
+                Toggle(ComposeIdentity.Label(account), f.AccountId == account.Id, f with { AccountId = account.Id });
+        }
+
+        menu.Items.Add(new Separator());
+        var clear = MenuItem("Clear filters", () => _model.SetFilter(MailListFilter.None));
+        clear.IsEnabled = f.IsActive;
+        menu.Items.Add(clear);
+        menu.Items.Add(new MenuItem { Header = "Filters apply to messages kept on this PC.", IsEnabled = false });
+        menu.PlacementTarget = button;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private void ListSort_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } button)
+            return;
+        menu.Items.Clear();
+        foreach (var (field, desc) in new[] { (MailSortField.Date, true), (MailSortField.Date, false), (MailSortField.From, false), (MailSortField.From, true), (MailSortField.Subject, false), (MailSortField.Subject, true) })
+        {
+            var item = new MenuItem { Header = MailListView.SortLabel(field, desc), IsCheckable = true, IsChecked = _model.Sort == field && _model.SortDescending == desc };
+            item.Click += (_, _) => _model.SetSort(field, desc);
+            menu.Items.Add(item);
+        }
+
+        menu.PlacementTarget = button;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private void ColumnSort_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string tag } && Enum.TryParse<MailSortField>(tag, out var field))
+            _model.SetSort(field);
+    }
+
+    private void RemoveFilterChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: MailFilterChip chip })
+            _model.SetFilter(chip.Without);
+    }
+
+    private void ClearFilters_Click(object sender, RoutedEventArgs e) => _model.SetFilter(MailListFilter.None);
 
     private static MenuItem MenuItem(string header, Action action)
     {

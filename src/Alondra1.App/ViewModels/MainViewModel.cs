@@ -201,6 +201,16 @@ public sealed partial class MainViewModel : ObservableObject
         if (!scope.IsUnified && MailAccounts.All(a => a.Id != scope.AccountId))
             scope = MailScope.UnifiedInbox;
         Scope = scope;
+        if (!scope.IsUnified && Filter.AccountId is not null)
+        {
+            Filter = Filter with { AccountId = null };
+            FilterChips.Clear();
+            foreach (var chip in MailListView.Chips(Filter, id => id))
+                FilterChips.Add(chip);
+            OnPropertyChanged(nameof(Filter));
+            OnPropertyChanged(nameof(HasFilter));
+        }
+
         if (!IsDemo && _services.Config.Layout.MailScope != scope.Key)
         {
             _services.Config.Layout.MailScope = scope.Key;
@@ -311,7 +321,51 @@ public sealed partial class MainViewModel : ObservableObject
     public string ReaderSender { get; private set; } = "";
     public string ReaderBody { get; private set; } = "";
     /// <summary>List header count: "24 messages", "5 of 24 messages", "Loading…", "No messages" (see <see cref="MessageCount"/>).</summary>
-    public string CountText => MessageCount.Describe(Messages.Count, _unfilteredTotal, _loadingMessages, !string.IsNullOrWhiteSpace(SearchText), _selectionCount);
+    public string CountText => MessageCount.Describe(Messages.Count, _unfilteredTotal, _loadingMessages, !string.IsNullOrWhiteSpace(SearchText) || Filter.IsActive, _selectionCount);
+
+    // ---------- List filters and sort (Mail UI spec §5.1) ----------
+
+    /// <summary>Unread, flagged, attachments, account: applied to the messages on this PC in the current scope.</summary>
+    public MailListFilter Filter { get; private set; } = MailListFilter.None;
+    public ObservableCollection<MailFilterChip> FilterChips { get; } = [];
+    public bool HasFilter => Filter.IsActive;
+    public MailSortField Sort => Enum.TryParse<MailSortField>(_services.Config.Layout.MailSort, out var sort) ? sort : MailSortField.Date;
+    public bool SortDescending => _services.Config.Layout.MailSortDescending;
+    public string SortLabel => MailListView.SortLabel(Sort, SortDescending);
+
+    /// <summary>The arrow shown on the sorted column header ("" on the others).</summary>
+    public string SortArrow(MailSortField field) => field == Sort ? (SortDescending ? "↓" : "↑") : "";
+    public string FromSortArrow => SortArrow(MailSortField.From);
+    public string SubjectSortArrow => SortArrow(MailSortField.Subject);
+    public string DateSortArrow => SortArrow(MailSortField.Date);
+
+    public void SetFilter(MailListFilter filter)
+    {
+        // An account filter only makes sense in a view of several accounts.
+        if (!Scope.IsUnified && filter.AccountId is not null)
+            filter = filter with { AccountId = null };
+        Filter = filter;
+        FilterChips.Clear();
+        foreach (var chip in MailListView.Chips(filter, id => MailAccounts.FirstOrDefault(a => a.Id == id) is { } a ? ComposeIdentity.Label(a) : id))
+            FilterChips.Add(chip);
+        OnPropertyChanged(nameof(Filter));
+        OnPropertyChanged(nameof(HasFilter));
+        _ = ReloadMessagesAsync();
+    }
+
+    /// <summary>Sorts by a column; choosing the sorted column again reverses the direction. Remembered on this PC.</summary>
+    public void SetSort(MailSortField field, bool? descending = null)
+    {
+        var layout = _services.Config.Layout;
+        var desc = descending ?? (field == Sort ? !SortDescending : field == MailSortField.Date);
+        layout.MailSort = field.ToString();
+        layout.MailSortDescending = desc;
+        if (!IsDemo)
+            SaveConfig();
+        foreach (var name in new[] { nameof(Sort), nameof(SortDescending), nameof(SortLabel), nameof(FromSortArrow), nameof(SubjectSortArrow), nameof(DateSortArrow) })
+            OnPropertyChanged(name);
+        _ = ReloadMessagesAsync();
+    }
     private int? _unfilteredTotal;
     private bool _loadingMessages;
     private int _selectionCount;
@@ -1069,7 +1123,7 @@ public sealed partial class MainViewModel : ObservableObject
                     list.AddRange(searching ? SampleCatalog.QueryScope(folderId, account.Id, SearchText) : all);
                 }
 
-                found = list.OrderByDescending(item => item.ReceivedUtc).ThenBy(item => item.AccountId, StringComparer.Ordinal).ThenByDescending(item => item.Uid).ToList();
+                found = MailListView.Apply(list, Filter, Sort, SortDescending);
             }
             else
             {
@@ -1092,8 +1146,8 @@ public sealed partial class MainViewModel : ObservableObject
                     }
                 }
 
-                // One chronological list across accounts; ties broken by account and uid so the order is stable.
-                found = list.OrderByDescending(item => item.ReceivedUtc).ThenBy(item => item.AccountId, StringComparer.Ordinal).ThenByDescending(item => item.Uid).ToList();
+                // One list across accounts, filtered and sorted; ties broken by account, folder and uid so the order is stable.
+                found = MailListView.Apply(list, Filter, Sort, SortDescending);
             }
         }
         finally
@@ -1104,10 +1158,14 @@ public sealed partial class MainViewModel : ObservableObject
         _unfilteredTotal = total;
         _selectionCount = 0;
         _selection = [];
+        // Keep the open message open when it is still in the list (sync, filters, sort); otherwise open the first row.
+        var previous = SelectedMessage;
         Messages.Clear();
         foreach (var message in found)
             Messages.Add(message);
-        SelectMessage(Messages.FirstOrDefault());
+        var keep = previous is null ? null
+            : Messages.FirstOrDefault(m => m.AccountId == previous.AccountId && m.FolderId == previous.FolderId && m.Uid == previous.Uid);
+        SelectMessage(keep ?? Messages.FirstOrDefault());
         OnPropertyChanged(nameof(Messages));
         RaiseListState();
     }
@@ -1126,6 +1184,7 @@ public sealed partial class MainViewModel : ObservableObject
         : FoldersInScope().Count == 0 ? "nofolder"
         : _scopeNotSynced ? "notsynced"
         : !string.IsNullOrWhiteSpace(SearchText) ? "nomatch"
+        : Filter.IsActive ? "filtered"
         : Connection is ConnectionState.Error ? "error"
         : Connection is ConnectionState.Offline ? "offline"
         : "empty";
@@ -1139,6 +1198,7 @@ public sealed partial class MainViewModel : ObservableObject
         "nofolder" => $"No {SelectedFolder} folder",
         "notsynced" => "This folder is not kept on this PC",
         "nomatch" => "No messages match your search",
+        "filtered" => "No messages match the filters",
         "error" => "Sync failed",
         "offline" => "You are offline",
         _ => "No messages here",
@@ -1151,6 +1211,7 @@ public sealed partial class MainViewModel : ObservableObject
         "nofolder" => Scope.IsUnified ? $"None of your accounts has a {SelectedFolder} folder." : $"{ScopeAccountLabel} has no {SelectedFolder} folder on its server.",
         "notsynced" => "Choose the folders to keep in the account's settings, then sync (F5).",
         "nomatch" => $"Nothing in {SelectedFolder} matches “{SearchText.Trim()}”.",
+        "filtered" => $"{SelectedFolder} in {ScopeAccountLabel} has no messages on this PC with: {string.Join(", ", FilterChips.Select(c => c.Label))}. Clear the filters to see all.",
         "error" => "Messages could not be loaded. Point at the Sync button for details, or press F5 to try again.",
         "offline" => "Messages already on this PC show here. Press F5 when you are back online.",
         _ => $"{SelectedFolder} in {ScopeAccountLabel} has no messages on this PC.",

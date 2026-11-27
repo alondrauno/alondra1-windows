@@ -502,17 +502,66 @@
                 <TextBlock Grid.Column="1" Text="{Binding ScopeAccountLabel}" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="{StaticResource PaneControlGapLeft}"
                            TextTrimming="CharacterEllipsis"/>
                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                  <!-- Filter (unread, flagged, attachments, account) and sort: labelled menus; the active state shows as chips below. -->
+                  <Button x:Name="ListFilterButton" Style="{StaticResource IconButton}" Width="30" Height="30" Click="ListFilter_Click" Margin="0,0,2,0"
+                          AutomationProperties.Name="Filter messages" ToolTip="Filter: unread, flagged, with attachments, account">
+                    <ui:Alondra1Icon Kind="Filter" IconSize="16">
+                      <ui:Alondra1Icon.Style>
+                        <Style TargetType="ui:Alondra1Icon">
+                          <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+                          <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasFilter}" Value="True"><Setter Property="Foreground" Value="{DynamicResource BrandBrush}"/></DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </ui:Alondra1Icon.Style>
+                    </ui:Alondra1Icon>
+                    <Button.ContextMenu><ContextMenu/></Button.ContextMenu>
+                  </Button>
+                  <Button x:Name="ListSortButton" Style="{StaticResource IconButton}" Width="30" Height="30" Click="ListSort_Click" Margin="0,0,8,0"
+                          AutomationProperties.Name="{Binding SortLabel, StringFormat=Sort messages. Now: {0}}" ToolTip="{Binding SortLabel, StringFormat=Sort: {0}}">
+                    <ui:Alondra1Icon Kind="Sort" IconSize="16" Foreground="{DynamicResource MutedBrush}"/>
+                    <Button.ContextMenu><ContextMenu/></Button.ContextMenu>
+                  </Button>
                   <TextBlock x:Name="MessageCountText" Text="{Binding CountText}" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
                              AutomationProperties.Name="{Binding CountText}" AutomationProperties.LiveSetting="Polite"/>
                 </StackPanel>
               </Grid>
+              <!-- Active filters as chips, each removable, plus Clear filters. Hidden when no filter applies. -->
+              <WrapPanel x:Name="FilterChipBar" DockPanel.Dock="Top" Margin="0,4,0,0" Visibility="{Binding HasFilter, Converter={StaticResource BoolVis}}">
+                <ItemsControl ItemsSource="{Binding FilterChips}" Focusable="False">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Button Style="{StaticResource SearchScopeButton}" Background="{DynamicResource SelectedBrush}" Height="26" MinHeight="26" Padding="10,0" Margin="0,0,6,4" FontSize="12"
+                              Click="RemoveFilterChip_Click" AutomationProperties.Name="{Binding Label, StringFormat=Remove filter {0}}" ToolTip="Remove this filter">
+                        <StackPanel Orientation="Horizontal">
+                          <TextBlock Text="{Binding Label}" VerticalAlignment="Center" MaxWidth="220" TextTrimming="CharacterEllipsis"/>
+                          <ui:Alondra1Icon Kind="Close" IconSize="10" Margin="6,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
+                        </StackPanel>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Style="{StaticResource QuietButton}" Height="26" MinHeight="26" Padding="8,0" Margin="0,0,0,4" FontSize="12" Content="Clear filters"
+                        Click="ClearFilters_Click" AutomationProperties.Name="Clear all filters"/>
+              </WrapPanel>
               <Border x:Name="ListColumnHeader" DockPanel.Dock="Top" Height="{StaticResource MailTableHeaderHeight}" Margin="{StaticResource PaneSectionGapTop}"
                       Background="{DynamicResource SubtleBrush}" CornerRadius="{StaticResource RadiusTip}">
                 <Grid ui:MailColumns.Apply="True">
-                  <TextBlock Grid.Column="1" Text="From" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
-                  <TextBlock Grid.Column="2" Text="Subject" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
-                  <TextBlock Grid.Column="4" Text="Received" FontSize="11" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"
-                             Visibility="{Binding ShowTimeColumn, Converter={StaticResource BoolVis}}"/>
+                  <!-- Column headers sort the list; the sorted column shows an arrow (direction), its name says it too. -->
+                  <Button Grid.Column="1" Style="{StaticResource ColumnHeaderButton}" Tag="From" Click="ColumnSort_Click" HorizontalAlignment="Left"
+                          AutomationProperties.Name="Sort by sender" ToolTip="Sort by sender">
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="From"/><TextBlock Text="{Binding FromSortArrow}" Margin="4,0,0,0"/></StackPanel>
+                  </Button>
+                  <Button Grid.Column="2" Style="{StaticResource ColumnHeaderButton}" Tag="Subject" Click="ColumnSort_Click" HorizontalAlignment="Left"
+                          AutomationProperties.Name="Sort by subject" ToolTip="Sort by subject">
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="Subject"/><TextBlock Text="{Binding SubjectSortArrow}" Margin="4,0,0,0"/></StackPanel>
+                  </Button>
+                  <Button Grid.Column="4" Style="{StaticResource ColumnHeaderButton}" Tag="Date" Click="ColumnSort_Click" HorizontalAlignment="Right"
+                          AutomationProperties.Name="Sort by date received" ToolTip="Sort by date received"
+                          Visibility="{Binding ShowTimeColumn, Converter={StaticResource BoolVis}}">
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="{Binding DateSortArrow}" Margin="0,0,4,0"/><TextBlock Text="Received"/></StackPanel>
+                  </Button>
                 </Grid>
               </Border>
               <Grid>
@@ -617,11 +666,13 @@
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>
-                <StackPanel x:Name="ListPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False" MaxWidth="320"
+                <StackPanel x:Name="ListPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="320"
                             Visibility="{Binding ShowListPlaceholder, Converter={StaticResource BoolVis}}">
                   <ui:Alondra1Icon Kind="Inbox" IconSize="32" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" Opacity="0.7"/>
                   <TextBlock Text="{Binding EmptyTitle}" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,2"/>
                   <TextBlock Text="{Binding EmptyDetail}" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+                  <Button Style="{StaticResource SecondaryButton}" Content="Clear filters" Click="ClearFilters_Click" HorizontalAlignment="Center" Margin="0,12,0,0"
+                          Visibility="{Binding HasFilter, Converter={StaticResource BoolVis}}"/>
                 </StackPanel>
               </Grid>
             </DockPanel>

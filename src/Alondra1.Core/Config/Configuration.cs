@@ -292,6 +292,10 @@ public sealed class LayoutSettings
 
     /// <summary>The header search reach chosen by the user (Module, AllMail or All); an explicit All stays when modules change.</summary>
     public string? SearchReach { get; set; }
+
+    /// <summary>Message list sort (Date, From, Subject) and direction; date, newest first, by default.</summary>
+    public string? MailSort { get; set; }
+    public bool MailSortDescending { get; set; } = true;
 }
 
 public sealed class OAuthClientSettings
