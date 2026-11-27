@@ -1524,24 +1524,36 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        foreach (var message in targets)
+        // Each message goes to its own account's folder; what can't be moved is reported, not dropped (spec §3.2, T05).
+        var role = folder == "Trash" ? FolderRole.Trash : FolderRole.Archive;
+        var plan = BulkActions.Plan(targets, _services.Config.Accounts, role);
+        var reasons = plan.Skipped.Select(s => s.Reason).ToList();
+        var done = 0;
+        foreach (var step in plan.Steps)
         {
-            var account = _services.Config.Accounts.FirstOrDefault(item => item.Id == message.AccountId);
-            if (account is null)
-                continue;
             var command = new RemoteMailCommand
             {
-                Kind = folder == "Trash" ? MailCommandKind.Delete : MailCommandKind.Archive,
-                FolderId = message.FolderId,
-                Uid = message.Uid,
-                DestinationFolderId = ResolveFolder(account, folder),
+                Kind = role == FolderRole.Trash ? MailCommandKind.Delete : MailCommandKind.Archive,
+                FolderId = step.Message.FolderId,
+                Uid = step.Message.Uid,
+                DestinationFolderId = step.Destination,
             };
-            await _services.Sync.ApplyLocalCommandAsync(account, command, CancellationToken.None).ConfigureAwait(true);
+            try
+            {
+                await _services.Sync.ApplyLocalCommandAsync(step.Account, command, CancellationToken.None).ConfigureAwait(true);
+                done++;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                reasons.Add($"{ComposeIdentity.Label(step.Account)} could not be updated ({ex.GetType().Name})");
+            }
         }
 
         _selection = [];
         await ReloadMessagesAsync().ConfigureAwait(true);
         await RefreshNavigationAsync().ConfigureAwait(true);
+        if (reasons.Count > 0)
+            Dialogs.Alert(BulkActions.Summary(role == FolderRole.Trash ? "Deleted" : "Archived", targets.Count, done, reasons), "Alondra1", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private async Task ToggleReadAsync()
@@ -2099,8 +2111,6 @@ public sealed partial class MainViewModel : ObservableObject
             account.Kind != AccountKind.Manual && (named is null || account.DisplayName == named))
             ?? _services.Config.Accounts.FirstOrDefault(account => account.Kind != AccountKind.Manual);
     }
-
-    private static string ResolveFolder(AccountConfig account, string display) => SpecialFolders.Resolve(account, display);
 
     private OutgoingMail? BuildReply(bool all)
     {
