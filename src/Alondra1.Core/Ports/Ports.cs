@@ -95,13 +95,15 @@ public sealed class SyncReport
     public bool Ok { get; init; }
     public bool Offline { get; init; }
     public bool Blocked { get; init; }
+    /// <summary>The provider refused the sign-in (expired token, changed password): the user must sign in again.</summary>
+    public bool AuthRequired { get; init; }
     public string Detail { get; init; } = "";
     public bool DegradedDedup { get; init; }
     /// <summary>The server's folders seen by this sync (empty when the sync did not reach the server).</summary>
     public IReadOnlyList<Alondra1.Core.Mail.RemoteFolder> Folders { get; init; } = [];
 
     public static SyncReport Done(string detail) => new() { Ok = true, Detail = detail };
-    public static SyncReport Failed(string detail, bool offline = false) => new() { Detail = detail, Offline = offline };
+    public static SyncReport Failed(string detail, bool offline = false, bool authRequired = false) => new() { Detail = detail, Offline = offline, AuthRequired = authRequired };
     public static SyncReport Stopped(string detail) => new() { Blocked = true, Detail = detail };
 }
 

@@ -85,6 +85,16 @@ public static class Dialogs
         System.Windows.Automation.AutomationProperties.SetName(format, "Open messages as");
         mail.Children.Add(Labeled("Open messages as", format));
         mail.Children.Add(Note("Every message can still be switched with HTML | Plain text above the message. Scripts, forms, and other active content never run."));
+        // Sending (Mail UI spec §3.2): which account New mail uses in the All accounts view. Replies always use the account
+        // that received the message, and an account's own view always uses that account.
+        mail.Children.Add(Subtitle("Sending"));
+        var sendChoices = new List<(string? Id, string Label)> { (null, "Ask each time") };
+        sendChoices.AddRange(model.Config.Accounts.Select(a => ((string?)a.Id, Alondra1.Core.Mail.ComposeIdentity.Label(a))));
+        var sendFrom = new ComboBox { ItemsSource = sendChoices.Select(c => c.Label).ToList(), Width = 360, HorizontalAlignment = HorizontalAlignment.Left,
+            SelectedIndex = Math.Max(0, sendChoices.FindIndex(c => c.Id is not null && c.Id == reading.DefaultSendAccountId)) };
+        System.Windows.Automation.AutomationProperties.SetName(sendFrom, "Send new mail from");
+        mail.Children.Add(Labeled("Send new mail from", sendFrom));
+        mail.Children.Add(Note("Used for New mail in the All accounts view. Replies and forwards always come from the account that received the message."));
         mail.Children.Add(Subtitle("Images"));
         var images = new ComboBox { ItemsSource = new[] { "Ask before loading", "Always load" }, SelectedIndex = reading.RemoteImages == RemoteImagePolicy.Ask ? 0 : 1, Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
         System.Windows.Automation.AutomationProperties.SetName(images, "Remote images");
@@ -315,6 +325,7 @@ public static class Dialogs
             model.Config.OAuth.Contacts = contacts.IsChecked == true;
             model.Config.OAuth.Notes = notes.IsChecked == true;
             reading.PreferHtml = format.SelectedIndex != 1;
+            reading.DefaultSendAccountId = sendChoices.ElementAtOrDefault(sendFrom.SelectedIndex).Id;
             reading.RemoteImages = images.SelectedIndex == 1 ? RemoteImagePolicy.Always : RemoteImagePolicy.Ask;
             reading.TrustedSenders = senders.ToList();
             var validation = ConfigWorkflow.Validate(model.Config);

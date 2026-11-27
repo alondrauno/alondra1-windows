@@ -56,7 +56,8 @@ public sealed class SyncCoordinator
             }
             catch (Exception ex)
             {
-                return SyncReport.Failed(ProviderDiagnostics.Explain(account.Kind, ex.Message), IsOffline(ex));
+                // A token that can't be refreshed while the network works means the user has to sign in again.
+                return SyncReport.Failed(ProviderDiagnostics.Explain(account.Kind, ex.Message), IsOffline(ex), authRequired: !IsOffline(ex));
             }
 
             return account.Mode == AccountMode.Online
@@ -69,7 +70,7 @@ public sealed class SyncCoordinator
         }
         catch (Exception ex)
         {
-            return SyncReport.Failed(ProviderDiagnostics.Explain(account.Kind, ex.Message), IsOffline(ex));
+            return SyncReport.Failed(ProviderDiagnostics.Explain(account.Kind, ex.Message), IsOffline(ex), IsAuthentication(ex));
         }
         finally
         {
@@ -527,6 +528,10 @@ public sealed class SyncCoordinator
             return gate;
         }
     }
+
+    /// <summary>The server rejected the credentials (MailKit's AuthenticationException, by name to keep Core provider-neutral).</summary>
+    private static bool IsAuthentication(Exception ex) =>
+        ex.GetType().Name == "AuthenticationException" || ex.InnerException?.GetType().Name == "AuthenticationException";
 
     private static bool IsOffline(Exception ex) =>
         ex is HttpRequestException or IOException or TimeoutException

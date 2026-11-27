@@ -63,11 +63,32 @@ public sealed partial class MailNavRow : ObservableObject
     [ObservableProperty]
     private bool _isSelected;
 
+    /// <summary>The account's provider sync state, shown as a short badge next to it (empty when up to date).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSyncBadge), nameof(AccessName), nameof(ToolTip))]
+    private string _syncBadge = "";
+
+    [ObservableProperty]
+    private bool _syncAttention;
+
+    private string _syncDetail = "";
+
+    public bool HasSyncBadge => SyncBadge.Length > 0;
+
+    public void SetSync(Alondra1.Core.Sync.AccountSyncStatus? status, DateTimeOffset now)
+    {
+        _syncDetail = status?.Describe(now) ?? "";
+        SyncAttention = status is { NeedsAttention: true };
+        SyncBadge = status?.Badge ?? "";
+        OnPropertyChanged(nameof(ToolTip));
+    }
+
     public string ChevronGlyph => IsExpanded ? "\uE70D" : "\uE76C";
 
-    public string AccessName => HasChildren ? $"{Node.AccessName}, {(IsExpanded ? "expanded" : "collapsed")}" : Node.AccessName;
+    public string AccessName => (HasChildren ? $"{Node.AccessName}, {(IsExpanded ? "expanded" : "collapsed")}" : Node.AccessName)
+        + (HasSyncBadge ? $", {SyncBadge}" : "");
 
-    public string ToolTip => Node.IsAccount ? $"{Node.Label}\n{Node.Detail}"
+    public string ToolTip => Node.IsAccount ? $"{Node.Label}\n{Node.Detail}" + (_syncDetail.Length > 0 ? $"\n{_syncDetail}" : "")
         : Node.NotSynced ? $"{Node.Detail}\nNot kept on this PC. Choose the folders to keep in the account's settings."
         : string.IsNullOrEmpty(Node.Detail) ? Node.Label : $"{Node.Label}\n{Node.Detail}";
 }

@@ -317,6 +317,9 @@ public sealed class AccountConfig
     public bool PlaintextConfirmed { get; set; }
     public SyncPreferences Sync { get; set; } = new();
     public FolderMap Folders { get; set; } = new();
+
+    /// <summary>When this PC last synced the account's mail with the provider successfully (shown in its status).</summary>
+    public DateTimeOffset? LastMailSyncUtc { get; set; }
     public bool PopDeleteAfterDownload { get; set; }
     public bool PopDeleteConsented { get; set; }
     public bool PopUidlMissingDisclosed { get; set; }

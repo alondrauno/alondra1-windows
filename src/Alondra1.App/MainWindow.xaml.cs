@@ -804,7 +804,9 @@ public partial class MainWindow : Window
             menu.Items.Add(MenuItem("Open", () => _model.SetScope(row.Scope)));
         if (row.IsAccount && !_model.IsDemo && _model.Config.Accounts.FirstOrDefault(a => a.Id == row.Node.AccountId) is { } account)
         {
-            menu.Items.Add(MenuItem("Sync now", () => _model.SyncCommand.Execute(null)));
+            menu.Items.Add(MenuItem("Sync this account now", () => _ = _model.SyncAccountAsync(account.Id)));
+            menu.Items.Add(MenuItem("Sync status…", () => Dialogs.Alert(this, $"{account.DisplayName} <{account.Address}>" + System.Environment.NewLine + System.Environment.NewLine
+                + _model.SyncStatusOf(account).Describe(System.DateTimeOffset.UtcNow), "Sync status", MessageBoxButton.OK)));
             menu.Items.Add(MenuItem("Account settings…", () => Dialogs.ShowAccount(this, _model, account)));
         }
 

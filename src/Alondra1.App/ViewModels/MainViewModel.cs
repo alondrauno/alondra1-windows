@@ -8,6 +8,7 @@ using Alondra1.Core.Demo;
 using Alondra1.Core.Layout;
 using Alondra1.Core.Mail;
 using Alondra1.Core.Organizer;
+using Alondra1.Core.Ports;
 using Alondra1.Core.Search;
 using Alondra1.Core.Sync;
 using Alondra1.Persistence;
@@ -261,6 +262,8 @@ public sealed partial class MainViewModel : ObservableObject
         NavRows.Clear();
         foreach (var row in rows)
             NavRows.Add(row);
+        if (!IsDemo)
+            ApplySyncBadges();
         NavRowsChanged?.Invoke();
     }
 
@@ -530,7 +533,8 @@ public sealed partial class MainViewModel : ObservableObject
     public bool ShowToolbarAccountSelector => IsCalendar || IsContacts;
     public bool HasSyncButton => HasAccountSelector;
     public bool IsSyncing { get; private set; }
-    public string SyncToolTip => (IsSyncing ? "Syncing…" : "Sync now (F5)") + (string.IsNullOrWhiteSpace(StatusText) ? "" : "\n" + StatusText);
+    public string SyncToolTip => (IsSyncing ? "Syncing…" : "Sync now (F5)") + (string.IsNullOrWhiteSpace(StatusText) ? "" : "\n" + StatusText)
+        + (IsDemo || _services.Config.Accounts.Count < 1 ? "" : "\n\n" + SyncDetails);
     public string SyncAccessName => $"Sync now. Status: {ConnectionLabel}. {StatusText}";
 
     /// <summary>With folders docked on top, they appear as tabs in the module toolbar instead of a separate pane.</summary>
@@ -794,41 +798,7 @@ public sealed partial class MainViewModel : ObservableObject
         SyncCommand.NotifyCanExecuteChanged();
         try
         {
-            UpdateStatus("Syncing…", ConnectionState.Syncing, summary: true);
-            // Every account is synced and reported: one failing account is never hidden behind another's success.
-            var failures = new List<string>();
-            var allOffline = true;
-            var synced = 0;
-            foreach (var account in _services.Config.Accounts.ToList())
-            {
-                // The account may have been deleted while an earlier account was syncing.
-                if (!_services.Config.Accounts.Contains(account))
-                    continue;
-                UpdateStatus($"Syncing {account.DisplayName}…", ConnectionState.Syncing, summary: true);
-                var report = await _services.Sync.SyncAsync(account, CancellationToken.None).ConfigureAwait(true);
-                if (report.Ok)
-                {
-                    synced++;
-                    // Remember where this server keeps Inbox, Sent, Drafts, Archive, and Trash (for example "INBOX.INBOX.Sent").
-                    if (SpecialFolders.Learn(account, report.Folders))
-                        SaveConfig();
-                }
-                else
-                {
-                    failures.Add($"{account.DisplayName}: {report.Detail}");
-                    allOffline &= report.Offline;
-                }
-
-                if (report.DegradedDedup)
-                    Dialogs.Alert(report.Detail, "Alondra1", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-
-            if (failures.Count == 0)
-                UpdateStatus(synced == 1 ? "1 account up to date" : $"{synced} accounts up to date", ConnectionState.Ready, summary: true);
-            else
-                UpdateStatus(string.Join("\n", failures), allOffline ? ConnectionState.Offline : ConnectionState.Error, summary: true);
-            await RefreshNavigationAsync().ConfigureAwait(true);
-            await ReloadMessagesAsync().ConfigureAwait(true);
+            await SyncAccountsAsync(_services.Config.Accounts.ToList()).ConfigureAwait(true);
         }
         finally
         {
@@ -836,6 +806,116 @@ public sealed partial class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(IsSyncing));
             OnPropertyChanged(nameof(SyncToolTip));
             SyncCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    // ---------- Per-account sync status (Mail UI spec §7) ----------
+
+    private readonly AccountSyncBoard _syncBoard = new();
+
+    /// <summary>At most this many accounts sync at once; a slow or failing provider never holds up the others.</summary>
+    public const int SyncConcurrency = 3;
+
+    public AccountSyncStatus SyncStatusOf(AccountConfig account) => _syncBoard.Get(account.Id, account.LastMailSyncUtc);
+
+    /// <summary>
+    /// Syncs the accounts side by side (bounded). Each account's state updates as soon as it finishes, the sidebar
+    /// counts refresh without losing the selection, and the list reloads once at the end.
+    /// </summary>
+    private async Task SyncAccountsAsync(IReadOnlyList<AccountConfig> accounts)
+    {
+        foreach (var account in accounts)
+            _syncBoard.Begin(account.Id, DateTimeOffset.UtcNow, account.LastMailSyncUtc);
+        PublishSyncStatus();
+        using var slots = new SemaphoreSlim(SyncConcurrency);
+        var degraded = new List<string>();
+        async Task One(AccountConfig account)
+        {
+            await slots.WaitAsync().ConfigureAwait(true);
+            SyncReport report;
+            try
+            {
+                // The account may have been deleted while others were syncing.
+                if (!_services.Config.Accounts.Contains(account))
+                {
+                    _syncBoard.Remove(account.Id);
+                    return;
+                }
+
+                report = await Task.Run(() => _services.Sync.SyncAsync(account, CancellationToken.None)).ConfigureAwait(true);
+            }
+            finally
+            {
+                slots.Release();
+            }
+
+            _syncBoard.Finish(account.Id, report, DateTimeOffset.UtcNow);
+            if (report.Ok)
+            {
+                account.LastMailSyncUtc = DateTimeOffset.UtcNow;
+                // Remember where this server keeps Inbox, Sent, Drafts, Archive, and Trash (for example "INBOX.INBOX.Sent").
+                SpecialFolders.Learn(account, report.Folders);
+            }
+
+            if (report.DegradedDedup)
+                degraded.Add(report.Detail);
+            PublishSyncStatus();
+            await RefreshNavigationAsync().ConfigureAwait(true);
+        }
+
+        await Task.WhenAll(accounts.Select(One)).ConfigureAwait(true);
+        SaveConfig();
+        foreach (var detail in degraded.Distinct())
+            Dialogs.Alert(detail, "Alondra1", MessageBoxButton.OK, MessageBoxImage.Information);
+        await ReloadMessagesAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>Syncs one account (its sidebar menu). Other accounts keep their own state.</summary>
+    public async Task SyncAccountAsync(string accountId)
+    {
+        if (IsDemo || _services.Config.Accounts.FirstOrDefault(a => a.Id == accountId) is not { } account)
+            return;
+        if (_syncBoard.Get(accountId).State == AccountSyncState.Syncing)
+            return;
+        await SyncAccountsAsync([account]).ConfigureAwait(true);
+    }
+
+    /// <summary>One line per account for the status tooltip and details: name, state, last success, reason.</summary>
+    public string SyncDetails
+    {
+        get
+        {
+            if (IsDemo || _services.Config.Accounts.Count == 0)
+                return StatusText;
+            var now = DateTimeOffset.UtcNow;
+            var names = Alondra1.Core.Search.MailSearchSource.AccountNames(_services.Config.Accounts);
+            return string.Join("\n", _services.Config.Accounts.Select(a => $"{names[a.Id]}: {SyncStatusOf(a).Describe(now)}"));
+        }
+    }
+
+    /// <summary>The status area and the sidebar badges follow the per-account states.</summary>
+    private void PublishSyncStatus()
+    {
+        var states = _services.Config.Accounts.Select(SyncStatusOf).ToList();
+        var overall = AccountSyncBoard.Overall(states);
+        UpdateStatus(AccountSyncBoard.Summary(states), overall switch
+        {
+            SyncOverall.Syncing => ConnectionState.Syncing,
+            SyncOverall.Offline => ConnectionState.Offline,
+            SyncOverall.Attention => ConnectionState.Error,
+            _ => ConnectionState.Ready,
+        }, summary: true);
+        ApplySyncBadges();
+        OnPropertyChanged(nameof(SyncDetails));
+    }
+
+    private void ApplySyncBadges()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var row in NavRows.Where(r => r.IsAccount))
+        {
+            var account = _services.Config.Accounts.FirstOrDefault(a => a.Id == row.Node.AccountId);
+            row.SetSync(account is null ? null : SyncStatusOf(account), now);
         }
     }
 
