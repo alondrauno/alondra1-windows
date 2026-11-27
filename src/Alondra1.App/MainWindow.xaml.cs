@@ -54,6 +54,13 @@ public partial class MainWindow : Window
         Deactivated += (_, _) => model.Search.Close();
         LocationChanged += (_, _) => model.Search.Close();
         model.Todo.PropertyChanged += Todo_PropertyChanged;
+        // Header and rows share one column layout; the view model resolves it for the list width and scope.
+        Alondra1.App.Controls.MailColumns.Current.Apply(model.Columns);
+        model.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.Columns))
+                Alondra1.App.Controls.MailColumns.Current.Apply(model.Columns);
+        };
         ApplyBackground();
         ReaderBody.HtmlFailed += reason => _model.ReportHtmlFailure(reason);
         model.MessageStateChanged += RedrawRow;
@@ -909,6 +916,52 @@ public partial class MainWindow : Window
         if (sender is Button { Tag: string tag } && Enum.TryParse<MailSortField>(tag, out var field))
             _model.SetSort(field);
     }
+
+    private static MailColumn? ColumnOf(object sender) =>
+        sender is FrameworkElement { Tag: string tag } && Enum.TryParse<MailColumn>(tag, out var column) ? column : null;
+
+    private void ColumnThumb_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+    {
+        if (ColumnOf(sender) is { } column)
+            _model.ResizeColumn(column, e.HorizontalChange);
+    }
+
+    private void ColumnThumb_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e) => _model.SaveColumns();
+
+    /// <summary>Keyboard resizing: Left / Right move the edge by 8 px (Shift: 32 px); Home restores the default width.</summary>
+    private void ColumnThumb_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (ColumnOf(sender) is not { } column)
+            return;
+        var step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 32 : 8;
+        switch (e.Key)
+        {
+            case Key.Left:
+                _model.ResizeColumn(column, -step);
+                _model.SaveColumns();
+                break;
+            case Key.Right:
+                _model.ResizeColumn(column, step);
+                _model.SaveColumns();
+                break;
+            case Key.Home:
+                _model.ResetColumns(column);
+                break;
+            default:
+                return;
+        }
+
+        e.Handled = true;
+    }
+
+    private void ColumnThumb_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ColumnOf(sender) is { } column)
+            _model.ResetColumns(column);
+        e.Handled = true;
+    }
+
+    private void ResetColumns_Click(object sender, RoutedEventArgs e) => _model.ResetColumns();
 
     private void RemoveFilterChip_Click(object sender, RoutedEventArgs e)
     {

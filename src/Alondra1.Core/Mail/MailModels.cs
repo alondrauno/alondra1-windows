@@ -57,10 +57,24 @@ public sealed class StoredMessage
         get
         {
             var unread = IsUnread ? "Unread, " : "";
+            var flagged = IsFlagged ? "Flagged, " : "";
             var account = string.IsNullOrWhiteSpace(AccountName) ? "" : AccountName + ", ";
-            return $"{unread}{FromName}, {account}{Subject}, {TimeLabel}";
+            var attachment = HasAttachments ? ", has attachments" : "";
+            return $"{unread}{flagged}{SenderLabel}, {account}{SubjectLabel}, {ReceivedFull}{attachment}";
         }
     }
+
+    /// <summary>The sender as listed: display name, else address, else "(unknown sender)". The stored fields are unchanged.</summary>
+    public string SenderLabel => MailListView.SenderName(this);
+
+    /// <summary>"Name &lt;address&gt;" for the sender tooltip, or whichever of the two is known.</summary>
+    public string SenderFull =>
+        !string.IsNullOrWhiteSpace(FromName) && !string.IsNullOrWhiteSpace(FromAddress) && FromName.Trim() != FromAddress.Trim()
+            ? $"{FromName.Trim()} <{FromAddress.Trim()}>" : SenderLabel;
+
+    public string SubjectLabel => string.IsNullOrWhiteSpace(Subject) ? "(no subject)" : Subject;
+
+    public string ReceivedFull => MailColumnLayout.FullDate(ReceivedUtc);
 }
 
 public sealed class StoredBody

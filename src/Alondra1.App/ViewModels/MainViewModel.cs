@@ -219,6 +219,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         foreach (var row in NavRows)
             row.IsSelected = row.Scope == Scope;
+        RefreshColumns();
         RaiseScope();
     }
 
@@ -371,6 +372,25 @@ public sealed partial class MainViewModel : ObservableObject
     private int _selectionCount;
     public bool ShowTimeColumn { get; private set; } = true;
     public bool ShowAttachmentColumn { get; private set; } = true;
+    public bool ShowAccountColumn { get; private set; }
+    private double _listWidth;
+
+    /// <summary>The message list table's column widths for the current list width and scope (header and rows share them).</summary>
+    public MailColumnWidths Columns { get; private set; } = MailColumnLayout.Resolve(640, MailColumnPreferences.Default, false);
+
+    private MailColumnPreferences ColumnPreferences
+    {
+        get
+        {
+            var l = _services.Config.Layout;
+            return new MailColumnPreferences(l.MailColumnFrom, l.MailColumnAccount, l.MailColumnReceived);
+        }
+        set
+        {
+            var l = _services.Config.Layout;
+            (l.MailColumnFrom, l.MailColumnAccount, l.MailColumnReceived) = (value.From, value.Account, value.Received);
+        }
+    }
     public string MonthLabel { get; private set; } = "";
     public string AgendaText { get; private set; } = "";
     public string TaskCountText { get; private set; } = "";
@@ -436,7 +456,7 @@ public sealed partial class MainViewModel : ObservableObject
         ? ComposeIdentity.Label(account) : SelectedMessage?.AccountName ?? "";
 
     public string ReaderDateFull => SelectedMessage is { } m
-        ? $"{m.ReceivedUtc.ToLocalTime():dddd d MMMM yyyy, HH:mm:ss} (UTC{m.ReceivedUtc.ToLocalTime():zzz})" : "";
+        ? MailColumnLayout.FullDate(m.ReceivedUtc) : "";
 
     /// <summary>Every recipient on its own line (the header line shows them shortened).</summary>
     public string ReaderRecipientsFull => SelectedMessage is { Recipients: { Length: > 0 } r }
@@ -854,10 +874,50 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void UpdateViewport(double width, double height)
     {
-        ShowTimeColumn = width > 285;
-        ShowAttachmentColumn = width > 360;
+        _listWidth = width;
+        RefreshColumns();
+    }
+
+    private void RefreshColumns()
+    {
+        if (_listWidth <= 0)
+            return;
+        Columns = MailColumnLayout.Resolve(_listWidth, ColumnPreferences, Scope.IsUnified);
+        ShowTimeColumn = Columns.ShowReceived;
+        ShowAttachmentColumn = Columns.ShowAttachment;
+        ShowAccountColumn = Columns.ShowAccount;
+        OnPropertyChanged(nameof(Columns));
         OnPropertyChanged(nameof(ShowTimeColumn));
         OnPropertyChanged(nameof(ShowAttachmentColumn));
+        OnPropertyChanged(nameof(ShowAccountColumn));
+    }
+
+    /// <summary>A column edge was dragged or moved with the arrow keys; <see cref="SaveColumns"/> keeps it.</summary>
+    public void ResizeColumn(MailColumn column, double delta)
+    {
+        ColumnPreferences = MailColumnLayout.Resize(ColumnPreferences, column, delta, _listWidth, Scope.IsUnified);
+        RefreshColumns();
+    }
+
+    public void SaveColumns()
+    {
+        if (!IsDemo)
+            SaveConfig();
+    }
+
+    /// <summary>Back to the default proportions (header menu, or double-click on a column edge).</summary>
+    public void ResetColumns(MailColumn? column = null)
+    {
+        var p = ColumnPreferences;
+        ColumnPreferences = column switch
+        {
+            MailColumn.From => p with { From = null },
+            MailColumn.Account => p with { Account = null },
+            MailColumn.Received => p with { Received = null },
+            _ => MailColumnPreferences.Default,
+        };
+        RefreshColumns();
+        SaveColumns();
     }
 
     public void SetDock(bool folders, DockEdge edge)
@@ -1220,6 +1280,17 @@ public sealed partial class MainViewModel : ObservableObject
         _selection = [];
         // Keep the open message open when it is still in the list (sync, filters, sort); otherwise open the first row.
         var previous = SelectedMessage;
+        // Dates relative to now (a message from yesterday no longer shows only its time), and the account each row
+        // came from, by name, with the address when two accounts share a name.
+        var names = MailSearchSource.AccountNames(MailAccounts);
+        var now = DateTimeOffset.Now;
+        foreach (var message in found)
+        {
+            message.TimeLabel = MailColumnLayout.TimeLabel(message.ReceivedUtc, now);
+            if (names.TryGetValue(message.AccountId, out var name))
+                message.AccountName = name;
+        }
+
         Messages.Clear();
         foreach (var message in found)
             Messages.Add(message);

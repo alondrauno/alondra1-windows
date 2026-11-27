@@ -1,20 +1,20 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using Alondra1.Core.Mail;
 
 namespace Alondra1.App.Controls;
 
 /// <summary>
-/// The one column layout of the message list, shared by the table header (From / Subject / Received) and every
-/// message row, so their columns stay aligned at any width. Set <c>ui:MailColumns.Apply="True"</c> on a Grid.
+/// The one column layout of the message list table, shared by the header (From / Account / Subject / Received) and
+/// every message row, so their columns stay aligned at any width and move together when a column edge is dragged.
+/// Set <c>ui:MailColumns.Apply="True"</c> on a Grid. Columns: 0 unread and flag, 1 From, 2 Account (unified views),
+/// 3 Subject (the rest of the width), 4 attachment, 5 Received.
 /// </summary>
 public static class MailColumns
 {
-    /// <summary>Unread-dot gutter, reserved on every row and on the header.</summary>
-    public const double IndicatorWidth = 16;
-    public const double FromWeight = 1;
-    public const double SubjectWeight = 2.55;
-    public const double AttachmentWidth = 18;
-    public const double ReceivedWidth = 57;
+    public const int Indicator = 0, From = 1, Account = 2, Subject = 3, Attachment = 4, Received = 5;
 
     public static readonly DependencyProperty ApplyProperty = DependencyProperty.RegisterAttached(
         "Apply", typeof(bool), typeof(MailColumns), new PropertyMetadata(false, OnApplyChanged));
@@ -23,21 +23,49 @@ public static class MailColumns
 
     public static void SetApply(DependencyObject element, bool value) => element.SetValue(ApplyProperty, value);
 
-    public static IReadOnlyList<GridLength> Widths { get; } =
-    [
-        new GridLength(IndicatorWidth),
-        new GridLength(FromWeight, GridUnitType.Star),
-        new GridLength(SubjectWeight, GridUnitType.Star),
-        new GridLength(AttachmentWidth),
-        new GridLength(ReceivedWidth),
-    ];
+    /// <summary>The current widths; the window updates it from the view model's resolved layout.</summary>
+    public static MailColumnsState Current { get; } = new();
 
     private static void OnApplyChanged(DependencyObject element, DependencyPropertyChangedEventArgs e)
     {
         if (element is not Grid grid || e.NewValue is not true)
             return;
         grid.ColumnDefinitions.Clear();
-        foreach (var width in Widths)
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
+        foreach (var name in new[] { nameof(MailColumnsState.Indicator), nameof(MailColumnsState.From), nameof(MailColumnsState.Account),
+                     nameof(MailColumnsState.Subject), nameof(MailColumnsState.Attachment), nameof(MailColumnsState.Received) })
+        {
+            var column = new ColumnDefinition();
+            BindingOperations.SetBinding(column, ColumnDefinition.WidthProperty, new Binding(name) { Source = Current, Mode = BindingMode.OneWay });
+            grid.ColumnDefinitions.Add(column);
+        }
+    }
+}
+
+public sealed class MailColumnsState : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public GridLength Indicator { get; private set; } = new(MailColumnLayout.IndicatorWidth);
+    public GridLength From { get; private set; } = new(1, GridUnitType.Star);
+    public GridLength Account { get; private set; } = new(0);
+    /// <summary>Always the remaining width, so rows fill the list with or without its scroll bar.</summary>
+    public GridLength Subject { get; } = new(1, GridUnitType.Star);
+    public GridLength Attachment { get; private set; } = new(MailColumnLayout.AttachmentWidth);
+    public GridLength Received { get; private set; } = new(MailColumnLayout.DefaultReceived);
+
+    private MailColumnWidths? _applied;
+
+    public void Apply(MailColumnWidths widths)
+    {
+        if (widths == _applied)
+            return;
+        _applied = widths;
+        Indicator = new GridLength(widths.Indicator);
+        From = new GridLength(widths.From);
+        Account = new GridLength(widths.Account);
+        Attachment = new GridLength(widths.Attachment);
+        Received = new GridLength(widths.Received);
+        foreach (var name in new[] { nameof(Indicator), nameof(From), nameof(Account), nameof(Attachment), nameof(Received) })
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

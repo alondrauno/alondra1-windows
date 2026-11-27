@@ -547,17 +547,36 @@
               </WrapPanel>
               <Border x:Name="ListColumnHeader" DockPanel.Dock="Top" Height="{StaticResource MailTableHeaderHeight}" Margin="{StaticResource PaneSectionGapTop}"
                       Background="{DynamicResource SubtleBrush}" CornerRadius="{StaticResource RadiusTip}">
+                <Border.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem Header="Reset column widths" Click="ResetColumns_Click"/>
+                  </ContextMenu>
+                </Border.ContextMenu>
                 <Grid ui:MailColumns.Apply="True">
-                  <!-- Column headers sort the list; the sorted column shows an arrow (direction), its name says it too. -->
+                  <!-- Column headers sort the list; the sorted column shows an arrow (direction), its name says it too.
+                       The edges between columns resize them (drag, or Tab to an edge and use Left / Right). -->
                   <Button Grid.Column="1" Style="{StaticResource ColumnHeaderButton}" Tag="From" Click="ColumnSort_Click" HorizontalAlignment="Left"
                           AutomationProperties.Name="Sort by sender" ToolTip="Sort by sender">
                     <StackPanel Orientation="Horizontal"><TextBlock Text="From"/><TextBlock Text="{Binding FromSortArrow}" Margin="4,0,0,0"/></StackPanel>
                   </Button>
-                  <Button Grid.Column="2" Style="{StaticResource ColumnHeaderButton}" Tag="Subject" Click="ColumnSort_Click" HorizontalAlignment="Left"
+                  <Thumb Grid.Column="1" Style="{StaticResource ColumnResizeThumb}" Tag="From" HorizontalAlignment="Right" Margin="0,0,-1,0"
+                         DragDelta="ColumnThumb_DragDelta" DragCompleted="ColumnThumb_DragCompleted" KeyDown="ColumnThumb_KeyDown" MouseDoubleClick="ColumnThumb_DoubleClick"
+                         AutomationProperties.Name="Resize the From column" ToolTip="Drag to resize. Double-click for the default width."/>
+                  <TextBlock Grid.Column="2" Text="Account" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0"
+                             Visibility="{Binding ShowAccountColumn, Converter={StaticResource BoolVis}}"/>
+                  <Thumb Grid.Column="2" Style="{StaticResource ColumnResizeThumb}" Tag="Account" HorizontalAlignment="Right" Margin="0,0,-1,0"
+                         DragDelta="ColumnThumb_DragDelta" DragCompleted="ColumnThumb_DragCompleted" KeyDown="ColumnThumb_KeyDown" MouseDoubleClick="ColumnThumb_DoubleClick"
+                         AutomationProperties.Name="Resize the Account column" ToolTip="Drag to resize. Double-click for the default width."
+                         Visibility="{Binding ShowAccountColumn, Converter={StaticResource BoolVis}}"/>
+                  <Button Grid.Column="3" Style="{StaticResource ColumnHeaderButton}" Tag="Subject" Click="ColumnSort_Click" HorizontalAlignment="Left" Margin="4,0,0,0"
                           AutomationProperties.Name="Sort by subject" ToolTip="Sort by subject">
                     <StackPanel Orientation="Horizontal"><TextBlock Text="Subject"/><TextBlock Text="{Binding SubjectSortArrow}" Margin="4,0,0,0"/></StackPanel>
                   </Button>
-                  <Button Grid.Column="4" Style="{StaticResource ColumnHeaderButton}" Tag="Date" Click="ColumnSort_Click" HorizontalAlignment="Right"
+                  <Thumb Grid.Column="5" Style="{StaticResource ColumnResizeThumb}" Tag="Received" HorizontalAlignment="Left" Margin="-5,0,0,0"
+                         DragDelta="ColumnThumb_DragDelta" DragCompleted="ColumnThumb_DragCompleted" KeyDown="ColumnThumb_KeyDown" MouseDoubleClick="ColumnThumb_DoubleClick"
+                         AutomationProperties.Name="Resize the Received column" ToolTip="Drag to resize. Double-click for the default width."
+                         Visibility="{Binding ShowTimeColumn, Converter={StaticResource BoolVis}}"/>
+                  <Button Grid.Column="5" Style="{StaticResource ColumnHeaderButton}" Tag="Date" Click="ColumnSort_Click" HorizontalAlignment="Right"
                           AutomationProperties.Name="Sort by date received" ToolTip="Sort by date received"
                           Visibility="{Binding ShowTimeColumn, Converter={StaticResource BoolVis}}">
                     <StackPanel Orientation="Horizontal"><TextBlock Text="{Binding DateSortArrow}" Margin="0,0,4,0"/><TextBlock Text="Received"/></StackPanel>
@@ -651,16 +670,24 @@
                     <DataTemplate>
                       <Grid Height="{Binding DataContext.RowHeight, RelativeSource={RelativeSource AncestorType=Window}}" AutomationProperties.Name="{Binding AccessibilityName}"
                             ui:MailColumns.Apply="True">
-                        <Ellipse Width="7" Height="7" Fill="{DynamicResource BrandBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                 Visibility="{Binding IsUnread, Converter={StaticResource BoolVis}}"/>
-                        <TextBlock Grid.Column="1" Text="{Binding FromName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"
-                                   Style="{StaticResource UnreadText}" ToolTip="{Binding FromAddress}"/>
-                        <TextBlock Grid.Column="2" Text="{Binding Subject}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"
-                                   Style="{StaticResource UnreadText}"/>
-                        <ui:Alondra1Icon Grid.Column="3" Kind="Attachment" IconSize="14" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
-                                          Visibility="{Binding HasAttachments, Converter={StaticResource BoolVis}}"/>
-                        <TextBlock Grid.Column="4" Text="{Binding TimeLabel}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
-                                   HorizontalAlignment="Right" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular"
+                        <!-- Unread (dot) and flagged (flag): shown only when the message has them. -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                          <Ellipse Width="7" Height="7" Fill="{DynamicResource BrandBrush}" VerticalAlignment="Center"
+                                   Visibility="{Binding IsUnread, Converter={StaticResource BoolVis}}"/>
+                          <ui:Alondra1Icon Kind="Flag" IconSize="12" Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center" Margin="2,0,0,0"
+                                            ToolTip="Flagged" Visibility="{Binding IsFlagged, Converter={StaticResource BoolVis}}"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding SenderLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"
+                                   Style="{StaticResource UnreadText}" ToolTip="{Binding SenderFull}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding AccountName}" FontSize="12" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" Margin="6,0,8,0" ToolTip="{Binding AccountName}"
+                                   Visibility="{Binding DataContext.ShowAccountColumn, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVis}}"/>
+                        <TextBlock Grid.Column="3" Text="{Binding SubjectLabel}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="4,0,8,0"
+                                   Style="{StaticResource UnreadText}" ToolTip="{Binding SubjectLabel}"/>
+                        <ui:Alondra1Icon Grid.Column="4" Kind="Attachment" IconSize="14" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
+                                          ToolTip="Has attachments" Visibility="{Binding HasAttachments, Converter={StaticResource BoolVis}}"/>
+                        <TextBlock Grid.Column="5" Text="{Binding TimeLabel}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" ToolTip="{Binding ReceivedFull}"
                                    Visibility="{Binding DataContext.ShowTimeColumn, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVis}}"/>
                       </Grid>
                     </DataTemplate>

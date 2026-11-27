@@ -296,6 +296,11 @@ public sealed class LayoutSettings
     /// <summary>Message list sort (Date, From, Subject) and direction; date, newest first, by default.</summary>
     public string? MailSort { get; set; }
     public bool MailSortDescending { get; set; } = true;
+
+    /// <summary>Message list column widths the user dragged (px); null follows the default proportions.</summary>
+    public double? MailColumnFrom { get; set; }
+    public double? MailColumnAccount { get; set; }
+    public double? MailColumnReceived { get; set; }
 }
 
 public sealed class OAuthClientSettings
