@@ -124,6 +124,9 @@ public sealed class ReadingSettings
 
     /// <summary>Senders (addresses, lower case) whose remote images always load.</summary>
     public List<string> TrustedSenders { get; set; } = [];
+
+    /// <summary>The account a new message in the All accounts view is sent from; null means ask every time.</summary>
+    public string? DefaultSendAccountId { get; set; }
 }
 
 public enum RemoteImagePolicy { Ask, Always }
@@ -268,16 +271,24 @@ public static class BackgroundImageFile
 
 public sealed class LayoutSettings
 {
-    public Layout.DockEdge FoldersDock { get; set; } = Layout.DockEdge.Top;
+    /// <summary>Accounts and folders: Left (default), Right, or Hidden. Earlier Top and Bottom bands open as Left.</summary>
+    public Layout.DockEdge FoldersDock { get; set; } = Layout.DockEdge.Left;
     public Layout.DockEdge ReadingDock { get; set; } = Layout.DockEdge.Right;
-    public double FolderBreadthSide { get; set; } = 152;
+    /// <summary>Sidebar width; the Mail UI spec targets 224 to 272 px.</summary>
+    public double FolderBreadthSide { get; set; } = 240;
     public double FolderBreadthBand { get; set; } = 52;
     /// <summary>Reading pane width beside the list; 520 gives about 55/45 at the default window width.</summary>
     public double ReadingBreadthSide { get; set; } = 520;
     public double ReadingBreadthBand { get; set; } = 174;
 
-    /// <summary>The account shown in Mail (display name), or null for All accounts. Restored at the next start.</summary>
+    /// <summary>Earlier versions: the account shown in Mail by display name. Read once and replaced by <see cref="MailScope"/>.</summary>
     public string? MailAccount { get; set; }
+
+    /// <summary>The Mail view (<see cref="Alondra1.Core.Mail.MailScope.Key"/>): unified folder, account folder or custom folder.</summary>
+    public string? MailScope { get; set; }
+
+    /// <summary>Collapsed rows of the Mail sidebar (scope keys, "unified" for All accounts); everything starts expanded.</summary>
+    public List<string> CollapsedNav { get; set; } = [];
 }
 
 public sealed class OAuthClientSettings
@@ -343,6 +354,19 @@ public sealed class FolderMap
     public string? Drafts { get; set; }
     public string? Trash { get; set; }
     public string? Archive { get; set; }
+    public string? Junk { get; set; }
+
+    /// <summary>Every folder the server listed at the last sync (for the account and folder tree); empty until then.</summary>
+    public List<KnownFolder> Known { get; set; } = [];
+}
+
+/// <summary>A folder on the server: its id (full path), leaf name, special use ("sent", "junk", ...) and path separator.</summary>
+public sealed class KnownFolder
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? SpecialUse { get; set; }
+    public string? Delimiter { get; set; }
 }
 
 public static class ProviderPresets
@@ -417,7 +441,32 @@ public static class ConfigWorkflow
                 $"Configuration version {config.SchemaVersion} is not a supported format.");
         }
 
+        NormalizeMailLayout(config);
         return config;
+    }
+
+    /// <summary>
+    /// Mail UI spec §2.2, §3 (additive, same schema version): accounts and folders are a sidebar, so the earlier Top and
+    /// Bottom folder bands open on the left, a narrow sidebar widens to the 224–272 px target, and the earlier Mail
+    /// account chosen by display name becomes a scope with the account's stable id (only when exactly one account has
+    /// that name; otherwise All accounts, never a guess).
+    /// </summary>
+    public static void NormalizeMailLayout(AppConfig config)
+    {
+        var layout = config.Layout ??= new LayoutSettings();
+        layout.CollapsedNav ??= [];
+        if (layout.FoldersDock is Layout.DockEdge.Top or Layout.DockEdge.Bottom)
+            layout.FoldersDock = Layout.DockEdge.Left;
+        if (layout.FolderBreadthSide < 200)
+            layout.FolderBreadthSide = 240;
+        if (layout.MailScope is null && !string.IsNullOrWhiteSpace(layout.MailAccount))
+        {
+            var named = config.Accounts.Where(a => a.DisplayName == layout.MailAccount).ToList();
+            layout.MailScope = named.Count == 1 ? new Mail.MailScope(named[0].Id, Mail.FolderRole.Inbox).Key : Mail.MailScope.UnifiedInbox.Key;
+        }
+
+        foreach (var account in config.Accounts)
+            account.Folders.Known ??= [];
     }
 
     public static AppConfig Parse(string json)

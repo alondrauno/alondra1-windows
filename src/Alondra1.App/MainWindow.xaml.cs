@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -32,7 +32,9 @@ public partial class MainWindow : Window
         _model = model;
         DataContext = model;
         ShellWindow.Attach(this);
-        FolderDockBox.ItemsSource = Enum.GetNames<DockEdge>();
+        // Accounts and folders are a sidebar (left, right) or hidden behind the folder button; no band (Mail UI spec §2.2).
+        FolderDockBox.ItemsSource = new[] { nameof(DockEdge.Left), nameof(DockEdge.Right), nameof(DockEdge.Hidden) };
+        model.NavRowsChanged += SelectNavRow;
         ReaderDockBox.ItemsSource = Enum.GetNames<DockEdge>();
         DensityBox.ItemsSource = Enum.GetNames<Density>();
         MailGrouping.SelectedIndex = model.Config.Appearance.GroupMailByAccount ? 1 : 0;
@@ -65,6 +67,7 @@ public partial class MainWindow : Window
             // --snapshot), as F5 would; --send-check sends between the first two manual accounts. Results go to logs\check.log.
             if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--account=", StringComparison.Ordinal)) is { } chosen)
             {
+                _model.SetMailAccountByName(chosen["--account=".Length..]);
                 _model.SetAccount(chosen["--account=".Length..]);
                 FillSelectors();
             }
@@ -162,27 +165,16 @@ public partial class MainWindow : Window
         _filling = true;
         AccountBox.ItemsSource = _model.AccountChoices;
         AccountBox.SelectedItem = _model.SelectedAccount;
-        ViewAccountBox.ItemsSource = _model.AccountChoices;
-        ViewAccountBox.SelectedItem = _model.SelectedAccount;
-        HiddenFolderBox.ItemsSource = _model.Folders;
-        SyncFolderSelectors(_model.SelectedFolder);
+        SelectNavRow();
         NoteSortBox.SelectedIndex = (int)_model.Notes.Sort;
         FolderDockBox.SelectedItem = _model.FoldersDock.ToString();
         ReaderDockBox.SelectedItem = _model.ReadingDock.ToString();
         DensityBox.SelectedItem = _model.Config.Appearance.Density.ToString();
-        ApplyFolderOrientation();
         SyncSearchBox();
         _filling = false;
         MessageList.ItemsSource = _model.Messages;
         MessageList.SelectedItem = _model.SelectedMessage;
         MessageList_SizeChanged(MessageList, null!);
-    }
-
-    /// <summary>The folder pane is a vertical list when docked left or right, and a wrapping strip when docked at the bottom.</summary>
-    private void ApplyFolderOrientation()
-    {
-        var panel = new FrameworkElementFactory(_model.FoldersAreBand ? typeof(WrapPanel) : typeof(StackPanel));
-        FolderList.ItemsPanel = new ItemsPanelTemplate(panel);
     }
 
     private void UpdateStatusDot() => StatusDot.SetResourceReference(Shape.FillProperty, _model.ConnectionBrushKey);
@@ -546,46 +538,132 @@ public partial class MainWindow : Window
 
     // ---------- Accounts and folders ----------
 
-    private void AccountBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => ChooseAccount(AccountBox.SelectedItem);
-    private void ViewAccountBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => ChooseAccount(ViewAccountBox.SelectedItem);
-
-    /// <summary>The toolbar selector (Calendar, Notes, Contacts) and Mail's View settings choose the same account.</summary>
-    private void ChooseAccount(object? selected)
+    /// <summary>The account of the Calendar and Contacts views (their toolbar selector). Mail uses the sidebar.</summary>
+    private void AccountBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_filling || selected is not string account)
+        if (_filling || AccountBox.SelectedItem is not string account)
             return;
         _model.SetAccount(account);
-        _filling = true;
-        AccountBox.SelectedItem = account;
-        ViewAccountBox.SelectedItem = account;
-        _filling = false;
-        MessageList.SelectedItem = _model.SelectedMessage;
         UpdateStatusDot();
     }
 
-    private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e) => ChooseFolder(FolderList.SelectedItem);
-    private void HiddenFolderBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => ChooseFolder(HiddenFolderBox.SelectedItem);
-    private void ToolbarFolders_SelectionChanged(object sender, SelectionChangedEventArgs e) => ChooseFolder(ToolbarFolders.SelectedItem);
-    private void ToolbarFolderBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => ChooseFolder(ToolbarFolderBox.SelectedItem);
+    // ---------- Accounts and folders sidebar (Mail UI spec §3.1) ----------
 
-    /// <summary>All folder selectors (toolbar tabs, narrow toolbar selector, folder pane, list-header selector) show the same folder.</summary>
-    private void ChooseFolder(object? selected)
+    /// <summary>Selects the row of the current scope (after the rows were rebuilt), without opening anything.</summary>
+    private void SelectNavRow()
     {
-        if (_filling || _syncSelection || selected is not string folder)
+        _syncSelection = true;
+        NavList.SelectedItem = _model.NavRows.FirstOrDefault(row => row.Scope == _model.Scope);
+        _syncSelection = false;
+    }
+
+    private void NavList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncSelection || NavList.SelectedItem is not MailNavRow row)
             return;
-        SyncFolderSelectors(folder);
-        _model.SetFolder(folder);
+        if (!row.CanSelect)
+        {
+            // Headings and path-only parents only expand and collapse; the selection stays on the current scope.
+            SelectNavRow();
+            return;
+        }
+
+        if (row.Scope == _model.Scope)
+            return;
+        _model.SetScope(row.Scope);
         MessageList.SelectedItem = _model.SelectedMessage;
     }
 
-    private void SyncFolderSelectors(string folder)
+    private void NavExpander_Click(object sender, RoutedEventArgs e)
     {
-        _syncSelection = true;
-        FolderList.SelectedItem = folder;
-        HiddenFolderBox.SelectedItem = folder;
-        ToolbarFolders.SelectedItem = folder;
-        ToolbarFolderBox.SelectedItem = folder;
-        _syncSelection = false;
+        if ((sender as FrameworkElement)?.Tag is MailNavRow row)
+            _model.ToggleNav(row);
+        e.Handled = true;
+    }
+
+    /// <summary>Tree keys on the flat list: Left collapses (or goes to the parent), Right expands, Enter moves to the messages.</summary>
+    private void NavList_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (NavList.SelectedItem is not MailNavRow row)
+            return;
+        var index = _model.NavRows.IndexOf(row);
+        if (e.Key == Key.Left)
+        {
+            if (row.HasChildren && row.IsExpanded)
+                _model.ToggleNav(row);
+            else
+            {
+                var parent = _model.NavRows.Take(index).LastOrDefault(r => r.Node.Depth < row.Node.Depth);
+                if (parent is not null)
+                    FocusNavRow(parent);
+            }
+
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Right && row.HasChildren)
+        {
+            if (!row.IsExpanded)
+                _model.ToggleNav(row);
+            else if (index + 1 < _model.NavRows.Count)
+                FocusNavRow(_model.NavRows[index + 1]);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Enter)
+        {
+            MessageList.Focus();
+            e.Handled = true;
+        }
+    }
+
+    private void FocusNavRow(MailNavRow row)
+    {
+        NavList.SelectedItem = row;
+        NavList.ScrollIntoView(row);
+        (NavList.ItemContainerGenerator.ContainerFromItem(row) as ListBoxItem)?.Focus();
+    }
+
+    /// <summary>Account rows: refresh, settings (reconnect, rename, folders kept here, remove), collapse.</summary>
+    private void NavList_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        var row = (e.OriginalSource as FrameworkElement)?.DataContext as MailNavRow ?? NavList.SelectedItem as MailNavRow;
+        var menu = NavList.ContextMenu!;
+        menu.Items.Clear();
+        if (row is null)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (row.CanSelect)
+            menu.Items.Add(MenuItem("Open", () => _model.SetScope(row.Scope)));
+        if (row.IsAccount && !_model.IsDemo && _model.Config.Accounts.FirstOrDefault(a => a.Id == row.Node.AccountId) is { } account)
+        {
+            menu.Items.Add(MenuItem("Sync now", () => _model.SyncCommand.Execute(null)));
+            menu.Items.Add(MenuItem("Account settings…", () => Dialogs.ShowAccount(this, _model, account)));
+        }
+
+        if (row.HasChildren)
+            menu.Items.Add(MenuItem(row.IsExpanded ? "Collapse" : "Expand", () => _model.ToggleNav(row)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuItem("Add or manage accounts…", () => _model.AccountsCommand.Execute(null)));
+    }
+
+    private static MenuItem MenuItem(string header, Action action)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    /// <summary>Shows or hides the accounts and folders sidebar (Hidden is remembered like the other layout choices).</summary>
+    private void SidebarToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _model.SetDock(folders: true, _model.FoldersHidden ? DockEdge.Left : DockEdge.Hidden);
+        _filling = true;
+        FolderDockBox.SelectedItem = _model.FoldersDock.ToString();
+        _filling = false;
+        if (!_model.FoldersHidden)
+            Dispatcher.InvokeAsync(() => (NavList.ItemContainerGenerator.ContainerFromItem(NavList.SelectedItem) as ListBoxItem)?.Focus());
     }
 
     private void FolderDockBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -593,8 +671,6 @@ public partial class MainWindow : Window
         if (_filling || FolderDockBox.SelectedItem is not string value || !Enum.TryParse<DockEdge>(value, out var edge))
             return;
         _model.SetDock(folders: true, edge);
-        ApplyFolderOrientation();
-        SyncFolderSelectors(_model.SelectedFolder);
     }
 
     private void ReaderDockBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -915,7 +991,7 @@ public partial class MainWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key is >= Key.D1 and <= Key.D6)
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key >= Key.D1 && e.Key < Key.D1 + _model.Workspaces.Count)
         {
             OpenWorkspace(_model.Workspaces[e.Key - Key.D1].Name);
             e.Handled = true;
@@ -950,10 +1026,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key is >= Key.D1 and <= Key.D5)
+        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key is >= Key.D1 and <= Key.D6)
         {
-            var folders = new[] { "Inbox", "Sent", "Drafts", "Archive", "Trash" };
-            _model.SetFolder(folders[e.Key - Key.D1]);
+            // Inbox, Sent, Drafts, Archive, Trash, Junk of the account in view (or of All accounts).
+            _model.SetFolder(Alondra1.Core.Mail.MailNavigation.StandardRoles[e.Key - Key.D1]);
             FillSelectors();
             e.Handled = true;
             return;

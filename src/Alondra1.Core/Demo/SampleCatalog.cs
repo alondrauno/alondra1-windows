@@ -138,6 +138,38 @@ public static class SampleCatalog
         </body></html>
         """;
 
+    /// <summary>The two sample accounts, as account settings (for the Mail sidebar and From in demo mode).</summary>
+    public static IReadOnlyList<Alondra1.Core.Config.AccountConfig> Accounts() =>
+    [
+        DemoAccount("demo-work", "Work", "you@work.example"),
+        DemoAccount("demo-personal", "Personal", "you@home.example"),
+    ];
+
+    private static Alondra1.Core.Config.AccountConfig DemoAccount(string id, string name, string address) => new()
+    {
+        Id = id,
+        DisplayName = name,
+        Address = address,
+        // Sample folders are named after their role (FolderId "Inbox", "Sent", ...), as a POP3 account's local folders are.
+        Incoming = new Alondra1.Core.Config.IncomingSettings { Protocol = Alondra1.Core.Config.MailProtocol.Pop3 },
+        Sync = new Alondra1.Core.Config.SyncPreferences { SelectedFolders = [] },
+    };
+
+    /// <summary>The sample messages of one folder, optionally of one account (by id) and matching a search.</summary>
+    public static IReadOnlyList<StoredMessage> QueryScope(string folderId, string? accountId, string? search)
+    {
+        var query = (search ?? "").Trim();
+        return Messages().Where(message =>
+            message.FolderId == folderId
+            && (accountId is null || message.AccountId == accountId)
+            && (query.Length == 0 || $"{message.FromName} {message.Subject} {message.Preview}".Contains(query, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    /// <summary>Per-folder counts of the sample messages.</summary>
+    public static IReadOnlyList<FolderCount> Counts() =>
+        Messages().GroupBy(m => (m.AccountId, m.FolderId)).Select(g => new FolderCount(g.Key.AccountId, g.Key.FolderId, g.Count(), g.Count(m => m.IsUnread))).ToList();
+
     public static IReadOnlyList<StoredMessage> Query(string folder, string? account, string? search)
     {
         var query = (search ?? "").Trim();

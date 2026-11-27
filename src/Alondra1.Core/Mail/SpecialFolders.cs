@@ -9,6 +9,8 @@ namespace Alondra1.Core.Mail;
 /// </summary>
 public static class SpecialFolders
 {
+    private static string Describe(KnownFolder f) => $"{f.Id}{f.Name}{f.SpecialUse}{f.Delimiter}";
+
     public static readonly IReadOnlyList<string> Displayed = ["Inbox", "Sent", "Drafts", "Archive", "Trash"];
 
     /// <summary>The folder id to read for a displayed folder of this account.</summary>
@@ -24,8 +26,37 @@ public static class SpecialFolders
             "Drafts" => folders.Drafts ?? "Drafts",
             "Archive" => folders.Archive ?? "Archive",
             "Trash" => folders.Trash ?? "Trash",
+            "Junk" => folders.Junk ?? "Junk",
             _ => display,
         };
+    }
+
+    /// <summary>
+    /// The folder id of a standard role, or null when this account has no such folder. Before the first sync (no folder
+    /// list yet) the usual names are assumed, as <see cref="Resolve"/> does; afterwards only folders the server listed
+    /// count, so a missing Archive is never taken for another folder (Mail UI spec §3.1).
+    /// </summary>
+    public static string? TryResolve(AccountConfig account, FolderRole role)
+    {
+        if (role == FolderRole.Other)
+            return null;
+        if (account.Incoming.Protocol == MailProtocol.Pop3)
+            return role is FolderRole.Junk ? null : role.ToString();
+        var map = account.Folders;
+        var mapped = role switch
+        {
+            FolderRole.Inbox => map.Inbox,
+            FolderRole.Sent => map.Sent,
+            FolderRole.Drafts => map.Drafts,
+            FolderRole.Archive => map.Archive,
+            FolderRole.Trash => map.Trash,
+            _ => map.Junk,
+        };
+        if (map.Known.Count == 0)
+            return mapped ?? (role == FolderRole.Inbox ? "INBOX" : role == FolderRole.Junk ? null : role.ToString());
+        if (mapped is not null && map.Known.Any(f => f.Id == mapped))
+            return mapped;
+        return role == FolderRole.Inbox ? map.Known.FirstOrDefault(f => f.SpecialUse == "inbox")?.Id ?? "INBOX" : null;
     }
 
     /// <summary>
@@ -59,6 +90,14 @@ public static class SpecialFolders
         Set(Find("drafts", "Drafts"), () => map.Drafts, value => map.Drafts = value);
         Set(Find("archive", "Archive"), () => map.Archive, value => map.Archive = value);
         Set(Find("trash", "Trash"), () => map.Trash, value => map.Trash = value);
+        Set(Find("junk", "Junk") ?? Find("junk", "Spam"), () => map.Junk, value => map.Junk = value);
+        var known = folders.Select(f => new KnownFolder { Id = f.Id, Name = f.Name, SpecialUse = f.SpecialUse, Delimiter = f.Delimiter }).ToList();
+        if (!known.Select(Describe).SequenceEqual(map.Known.Select(Describe)))
+        {
+            map.Known = known;
+            changed = true;
+        }
+
         return changed;
     }
 }

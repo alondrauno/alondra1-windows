@@ -38,6 +38,8 @@ public interface IPersonalStore
     Task<IReadOnlyList<QueuedOperation>> ListOperationsAsync(string? accountId, CancellationToken cancellationToken);
     Task<IReadOnlyList<string>> ListPopUidlsAsync(string accountId, CancellationToken cancellationToken);
     Task<int> CountMessagesAsync(string? accountId, CancellationToken cancellationToken);
+    /// <summary>Messages and unread messages per account and folder, for the Mail sidebar (one grouped query).</summary>
+    Task<IReadOnlyList<Alondra1.Core.Mail.FolderCount>> CountByFolderAsync(CancellationToken cancellationToken);
     Task DeleteAccountDataAsync(string accountId, CancellationToken cancellationToken);
     Task<IReadOnlyList<StoredAttachment>> ListAttachmentsAsync(MessageKey key, CancellationToken cancellationToken);
     Task<StoredAttachment?> FindAttachmentAsync(string id, CancellationToken cancellationToken);
@@ -164,6 +166,18 @@ public sealed class SessionCache : ISessionCache
             $"{message.FromName} {message.Subject} {message.Preview}".Contains(text, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
+    public IReadOnlyList<Alondra1.Core.Mail.FolderCount> Counts()
+    {
+        lock (_gate)
+        {
+            return _messages.Select(pair =>
+            {
+                var split = pair.Key.IndexOf('|', StringComparison.Ordinal);
+                return new Alondra1.Core.Mail.FolderCount(pair.Key[..split], pair.Key[(split + 1)..], pair.Value.Count, pair.Value.Count(m => m.IsUnread));
+            }).ToList();
+        }
+    }
+
     public void SetBody(MessageKey key, StoredBody body)
     {
         lock (_gate)
@@ -195,6 +209,8 @@ public interface ISessionCache
     void Upsert(StoredMessage message);
     IReadOnlyList<StoredMessage> List(string? accountId, string folderId);
     IReadOnlyList<StoredMessage> Search(string? accountId, string? folderId, string query);
+    /// <summary>Messages and unread messages per account and folder in this session.</summary>
+    IReadOnlyList<Alondra1.Core.Mail.FolderCount> Counts();
     void SetBody(MessageKey key, StoredBody body);
     StoredBody? GetBody(MessageKey key);
     void ClearAccount(string accountId);

@@ -229,6 +229,25 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         }
     }
 
+    public async Task<IReadOnlyList<FolderCount>> CountByFolderAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = Require().CreateCommand();
+            command.CommandText = "SELECT account_id, folder_id, COUNT(*), SUM(is_unread) FROM messages GROUP BY account_id, folder_id";
+            var result = new List<FolderCount>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                result.Add(new FolderCount(reader.GetString(0), reader.GetString(1), reader.GetInt32(2), reader.IsDBNull(3) ? 0 : reader.GetInt32(3)));
+            return result;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task DeleteAccountDataAsync(string accountId, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);

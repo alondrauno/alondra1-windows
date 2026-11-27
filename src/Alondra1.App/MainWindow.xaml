@@ -168,10 +168,10 @@
           <!-- Mail -->
           <DockPanel Visibility="{Binding IsMail, Converter={StaticResource BoolVis}}" LastChildFill="True">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-              <Button Style="{StaticResource PrimaryButton}" Command="{Binding NewMailCommand}" AutomationProperties.Name="New message" ToolTip="New message (Ctrl+N)" Margin="0,0,6,0">
+              <Button Style="{StaticResource PrimaryButton}" Command="{Binding NewMailCommand}" AutomationProperties.Name="New mail" ToolTip="New mail (Ctrl+N)" Margin="0,0,6,0">
                 <StackPanel Orientation="Horizontal">
                   <ui:Alondra1Icon Kind="Compose" IconSize="16" VerticalAlignment="Center"/>
-                  <TextBlock Text="New" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{Binding ShowNewLabel, Converter={StaticResource BoolVis}}"/>
+                  <TextBlock Text="New mail" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{Binding ShowNewLabel, Converter={StaticResource BoolVis}}"/>
                 </StackPanel>
               </Button>
               <Button Style="{StaticResource IconButton}" Command="{Binding ReplyCommand}" ui:ActionHint.WhenDisabled="Select a message first" AutomationProperties.Name="Reply" ToolTip="Reply (Ctrl+R)">
@@ -204,10 +204,6 @@
                 <Border Margin="0,0,12,12" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource RadiusLg}" Padding="12" Width="280" Effect="{StaticResource PopupShadow}">
                   <StackPanel>
-                    <DockPanel Margin="0,0,0,8">
-                      <TextBlock Text="Account" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
-                      <ComboBox x:Name="ViewAccountBox" Width="150" HorizontalAlignment="Right" SelectionChanged="ViewAccountBox_SelectionChanged" AutomationProperties.Name="Account in view"/>
-                    </DockPanel>
                     <DockPanel Margin="0,0,0,8" IsEnabled="{Binding IsAllAccounts}">
                       <TextBlock Text="Group" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
                       <ComboBox x:Name="MailGrouping" Width="150" HorizontalAlignment="Right" SelectionChanged="MailGrouping_Changed" AutomationProperties.Name="Group messages">
@@ -227,7 +223,7 @@
                       <TextBlock Text="Density" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
                       <ComboBox x:Name="DensityBox" Width="150" HorizontalAlignment="Right" SelectionChanged="DensityBox_SelectionChanged" AutomationProperties.Name="Density"/>
                     </DockPanel>
-                    <TextBlock Text="“Top” shows folders in this toolbar." FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                    <TextBlock Text="Accounts and folders are in the sidebar; Hidden puts them behind the folder button." FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                   </StackPanel>
                 </Border>
               </Popup>
@@ -237,27 +233,15 @@
               </Button>
             </StackPanel>
 
-            <!-- Folders as tabs when docked on top; a selector when the toolbar is narrow. -->
-            <Grid Visibility="{Binding ShowToolbarFolders, Converter={StaticResource BoolVis}}" HorizontalAlignment="Left" VerticalAlignment="Center">
-              <ListBox x:Name="ToolbarFolders" VerticalAlignment="Center" ItemsSource="{Binding Folders}" BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource TabItem}"
-                       AutomationProperties.Name="Folders" SelectionChanged="ToolbarFolders_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                       Visibility="{Binding FolderTabsAsCombo, Converter={StaticResource BoolVis}, ConverterParameter=invert}">
-                <ListBox.ItemsPanel>
-                  <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-                </ListBox.ItemsPanel>
-                <ListBox.ItemTemplate>
-                  <DataTemplate>
-                    <StackPanel Orientation="Horizontal" ToolTip="{Binding}">
-                      <ui:Alondra1Icon Kind="{Binding Converter={StaticResource FolderIcon}}" IconSize="16" VerticalAlignment="Center"/>
-                      <TextBlock Text="{Binding}" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Visibility="{Binding DataContext.ShowFolderLabels, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVis}}"/>
-                    </StackPanel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-              <ComboBox x:Name="ToolbarFolderBox" ItemsSource="{Binding Folders}" Style="{StaticResource ToolbarSelector}" AutomationProperties.Name="Folder"
-                        SelectionChanged="ToolbarFolderBox_SelectionChanged" Visibility="{Binding FolderTabsAsCombo, Converter={StaticResource BoolVis}}"/>
-            </Grid>
+            <!-- Current view and the sidebar toggle; folders themselves live in the sidebar (Mail UI spec §4). -->
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Button x:Name="SidebarToggle" Style="{StaticResource IconButton}" Click="SidebarToggle_Click"
+                      AutomationProperties.Name="{Binding SidebarToggleLabel}" ToolTip="{Binding SidebarToggleLabel}">
+                <ui:Alondra1Icon Kind="Folder" IconSize="18"/>
+              </Button>
+              <TextBlock Text="{Binding ScopeTitle}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
+                         AutomationProperties.Name="{Binding ScopeTitle, StringFormat='Showing {0}'}"/>
+            </StackPanel>
           </DockPanel>
 
           <!-- Calendar -->
@@ -285,15 +269,7 @@
           <StackPanel Orientation="Horizontal" Visibility="{Binding IsContacts, Converter={StaticResource BoolVis}}">
             <ui:Alondra1Icon Kind="Contacts" IconSize="18" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
             <TextBlock Text="{Binding VisibleContacts.Count, StringFormat='{}{0} people'}" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
-          </StackPanel>
-
-          <!-- Chat -->
-          <StackPanel Orientation="Horizontal" Visibility="{Binding IsChat, Converter={StaticResource BoolVis}}">
-            <Border Style="{StaticResource Chip}">
-              <TextBlock Text="Coming later" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
-            </Border>
-          </StackPanel>
-          </Grid>
+          </StackPanel>          </Grid>
         </DockPanel>
       </Border>
 
@@ -308,23 +284,108 @@
                              Visibility="{Binding IsMail, Converter={StaticResource BoolVis}}"
                              BreadthCommitted="Dock_BreadthCommitted"
                              SizeChanged="Dock_SizeChanged">
+          <!-- Accounts and folders (Mail UI spec §3.1): All accounts with the unified folders, then every account with its
+               standard and custom folders. Independent scroll; Up/Down move, Left/Right collapse and expand, Enter opens. -->
           <Border Style="{StaticResource Pane}">
-            <ListBox x:Name="FolderList" ItemsSource="{Binding Folders}" BorderThickness="0" Background="Transparent" Margin="8"
-                     AutomationProperties.Name="Folders" ItemContainerStyle="{StaticResource TabItem}"
-                     SelectionChanged="FolderList_SelectionChanged"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-              <ListBox.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
-              </ListBox.ItemsPanel>
-              <ListBox.ItemTemplate>
-                <DataTemplate>
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Bottom" Margin="8,4,8,8">
+                <Button Style="{StaticResource QuietButton}" Command="{Binding AccountsCommand}" HorizontalAlignment="Left"
+                        AutomationProperties.Name="Add or manage accounts" ToolTip="Add an account, or change one (Settings → Accounts)">
                   <StackPanel Orientation="Horizontal">
-                    <ui:Alondra1Icon Kind="{Binding Converter={StaticResource FolderIcon}}" IconSize="16" VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    <ui:Alondra1Icon Kind="Add" IconSize="14" VerticalAlignment="Center"/>
+                    <TextBlock Text="Accounts" Margin="6,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
+                </Button>
+              </DockPanel>
+              <ListBox x:Name="NavList" ItemsSource="{Binding NavRows}" BorderThickness="0" Background="Transparent" Margin="6,8,6,0"
+                       AutomationProperties.Name="Accounts and folders"
+                       VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       SelectionChanged="NavList_SelectionChanged" KeyDown="NavList_KeyDown" ContextMenuOpening="NavList_ContextMenuOpening">
+                <ListBox.ContextMenu><ContextMenu/></ListBox.ContextMenu>
+                <ListBox.ItemContainerStyle>
+                  <Style TargetType="ListBoxItem">
+                    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="MinHeight" Value="32"/>
+                    <Setter Property="AutomationProperties.Name" Value="{Binding AccessName}"/>
+                    <Setter Property="ToolTip" Value="{Binding ToolTip}"/>
+                    <Setter Property="IsEnabled" Value="True"/>
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                          <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource RadiusMd}" Padding="4,0" Margin="0,1">
+                            <Grid>
+                              <Border x:Name="Edge" Width="3" HorizontalAlignment="Left" Margin="-4,7,0,7" CornerRadius="1.5" Background="{DynamicResource BrandBrush}" Visibility="Collapsed"/>
+                              <ContentPresenter VerticalAlignment="Center"/>
+                            </Grid>
+                          </Border>
+                          <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                              <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                              <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                              <Setter TargetName="Edge" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                          </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Grid Margin="{Binding Indent}" MinHeight="32">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="20"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                      </Grid.ColumnDefinitions>
+                      <!-- Expand / collapse (rows with folders under them). -->
+                      <Button Grid.Column="0" Width="20" Height="24" Padding="0" Click="NavExpander_Click" Tag="{Binding}" Focusable="False"
+                              Visibility="{Binding HasChildren, Converter={StaticResource BoolVis}}"
+                              AutomationProperties.Name="{Binding Label, StringFormat='Expand or collapse {0}'}">
+                        <Button.Style>
+                          <Style TargetType="Button" BasedOn="{StaticResource IconButton}"><Setter Property="MinHeight" Value="0"/><Setter Property="MinWidth" Value="0"/></Style>
+                        </Button.Style>
+                        <TextBlock Text="{Binding ChevronGlyph}" FontFamily="Segoe MDL2 Assets" FontSize="9" Foreground="{DynamicResource MutedBrush}"/>
+                      </Button>
+                      <!-- Account marker (initials, supplemental to the name and address) or the folder icon. -->
+                      <Border Grid.Column="1" Width="22" Height="22" CornerRadius="11" Background="{DynamicResource SubtleBrush}" Margin="0,0,8,0"
+                              Visibility="{Binding IsAccount, Converter={StaticResource BoolVis}}">
+                        <TextBlock Text="{Binding Initials}" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+                      </Border>
+                      <ui:Alondra1Icon Grid.Column="1" Kind="{Binding Icon}" IconSize="16" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"
+                                        Visibility="{Binding IsFolder, Converter={StaticResource BoolVis}}"/>
+                      <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,4">
+                        <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis">
+                          <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                              <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsHeading}" Value="True"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/><Setter Property="FontSize" Value="12"/></DataTrigger>
+                                <DataTrigger Binding="{Binding IsAccount}" Value="True"><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger>
+                                <DataTrigger Binding="{Binding HasUnread}" Value="True"><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger>
+                                <DataTrigger Binding="{Binding NotSynced}" Value="True"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/></DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"
+                                   Visibility="{Binding IsAccount, Converter={StaticResource BoolVis}}"/>
+                      </StackPanel>
+                      <!-- Unread count: a number, never only a color; unknown counts show nothing (see the row's name). -->
+                      <TextBlock Grid.Column="3" Text="{Binding UnreadText}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,4,0"
+                                 Foreground="{DynamicResource TextBrush}" Typography.NumeralAlignment="Tabular"
+                                 Visibility="{Binding HasUnread, Converter={StaticResource BoolVis}}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
           </Border>
           <!-- Message list: 16 px pane padding; header row 48 (title left, view + count right); 12 px gap; 32 px column row;
                the column row and every message row share MailColumns, so From / Subject / Received stay aligned. -->
@@ -338,10 +399,8 @@
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="{Binding SelectedFolder}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                <ComboBox x:Name="HiddenFolderBox" Grid.Column="1" Margin="{StaticResource PaneControlGapLeft}" MinWidth="110" VerticalAlignment="Center"
-                          AutomationProperties.Name="Folder"
-                          Visibility="{Binding ShowFolderCombo, Converter={StaticResource BoolVis}}"
-                          SelectionChanged="HiddenFolderBox_SelectionChanged"/>
+                <TextBlock Grid.Column="1" Text="{Binding ScopeAccountLabel}" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="{StaticResource PaneControlGapLeft}"
+                           TextTrimming="CharacterEllipsis"/>
                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                   <TextBlock x:Name="MessageCountText" Text="{Binding CountText}" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
                              AutomationProperties.Name="{Binding CountText}" AutomationProperties.LiveSetting="Polite"/>
@@ -658,11 +717,6 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <TextBlock Text="No matching contacts" Foreground="{DynamicResource MutedBrush}" Visibility="{Binding NoContacts, Converter={StaticResource BoolVis}}"/>
-              </StackPanel>
-              <StackPanel Visibility="{Binding IsChat, Converter={StaticResource BoolVis}}" HorizontalAlignment="Center" Margin="0,40,0,0">
-                <ui:Alondra1Icon Kind="Chat" IconSize="32" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center"/>
-                <TextBlock Text="Chat is coming later" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,8,0,4"/>
-                <TextBlock Foreground="{DynamicResource MutedBrush}" Text="Mail, calendar, to-do, notes, and contacts are the modules Alondra1 uses today." TextWrapping="Wrap" TextAlignment="Center" MaxWidth="360"/>
               </StackPanel>
             </StackPanel>
           </Border>

@@ -40,7 +40,13 @@ public class UiDesignTests
         Assert.Contains(header.Descendants(), element => (string?)element.Attribute("ItemsSource") == "{Binding Workspaces}");
         Assert.Contains(header.Descendants(), element => (string?)element.Attribute(Xaml + "Name") == "SearchBox");
         Assert.Contains(toolbar.Descendants(), element => (string?)element.Attribute(Xaml + "Name") == "AccountBox");
-        Assert.Contains(toolbar.Descendants(), element => (string?)element.Attribute(Xaml + "Name") == "ToolbarFolders");
+        // Folders live in the accounts and folders sidebar, not as toolbar tabs (Mail UI spec §4); the toolbar shows the scope.
+        Assert.DoesNotContain(toolbar.Descendants(), element => (string?)element.Attribute(Xaml + "Name") == "ToolbarFolders");
+        Assert.Contains(toolbar.Descendants(), element => (string?)element.Attribute("Text") == "{Binding ScopeTitle}");
+        Assert.Contains(window.Descendants(), element => (string?)element.Attribute(Xaml + "Name") == "NavList"
+            && (string?)element.Attribute("ItemsSource") == "{Binding NavRows}");
+        // Chat is not a module (Mail UI spec §2.1, T01).
+        Assert.DoesNotContain(window.Descendants(), element => ((string?)element.Attribute("Visibility"))?.Contains("IsChat") == true);
         Assert.DoesNotContain(window.Descendants(), element => (string?)element.Attribute("Text") == "{Binding StatusText}");
     }
 

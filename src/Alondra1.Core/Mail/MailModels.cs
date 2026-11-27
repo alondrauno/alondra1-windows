@@ -112,6 +112,8 @@ public sealed class OutgoingAttachment
 
 public sealed class OutgoingMail
 {
+    /// <summary>The account to send from (stable id); null when the user has to choose in the compose window. Not part of the message.</summary>
+    public string? AccountId { get; set; }
     public string? MessageId { get; set; }
     public string FromAddress { get; set; } = "";
     public string FromName { get; set; } = "";
@@ -129,6 +131,8 @@ public sealed class RemoteFolder
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string? SpecialUse { get; set; }
+    /// <summary>The server's hierarchy separator ("/" or "."); null for a flat server (POP3).</summary>
+    public string? Delimiter { get; set; }
     public uint UidValidity { get; set; }
     public ulong HighestModSeq { get; set; }
 }

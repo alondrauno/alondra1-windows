@@ -50,7 +50,7 @@
   <sys:Double x:Key="PaneHeaderMinHeight">48</sys:Double>      <!-- message-list and reader header rows -->
   <sys:Double x:Key="MailTableHeaderHeight">32</sys:Double>    <!-- From / Subject / Received row -->
 
-  <!-- Workspace tabs in the header (Mail, Calendar, To-do, Notes, Contacts, Chat). -->
+  <!-- Workspace tabs in the header (Mail, Calendar, To-do, Notes, Contacts). -->
   <sys:Double x:Key="WorkspaceTabHeight">36</sys:Double>
   <sys:Double x:Key="WorkspaceTabMinWidth">72</sys:Double>
   <sys:Double x:Key="WorkspaceTabIconOnlyWidth">40</sys:Double>

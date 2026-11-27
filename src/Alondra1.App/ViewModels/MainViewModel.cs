@@ -32,10 +32,13 @@ public sealed partial class MainViewModel : ObservableObject
             new WorkspaceChoice("To-do", "\uE9D5", false, "Todo", "Search tasks"),
             new WorkspaceChoice("Notes", "\uE70B", false, "Notes", "Search notes"),
             new WorkspaceChoice("Contacts", "\uE77B", false, "Contacts", "Search contacts"),
-            new WorkspaceChoice("Chat", "\uE8F2", true, "Chat", null),
         ];
+        // Chat is not offered (Mail UI spec \u00A72.1): no tab, shortcut or search entry. Its code and data are kept.
         SelectWorkspaceCommand = new RelayCommand<string>(SelectWorkspace);
-        NewMailCommand = new RelayCommand(() => ComposeRequested?.Invoke(null));
+        NewMailCommand = new RelayCommand(() => ComposeRequested?.Invoke(new OutgoingMail
+        {
+            AccountId = ComposeIdentity.DefaultAccount(MailAccounts, Scope, null, _services.Config.Reading.DefaultSendAccountId),
+        }));
         ReplyCommand = new RelayCommand(() => ComposeRequested?.Invoke(BuildReply(all: false)), () => SelectedMessage is not null);
         ReplyAllCommand = new RelayCommand(() => ComposeRequested?.Invoke(BuildReply(all: true)), () => SelectedMessage is not null);
         ForwardCommand = new RelayCommand(() => ComposeRequested?.Invoke(BuildForward()), () => SelectedMessage is not null);
@@ -130,16 +133,142 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsTasks { get; private set; }
     public bool IsNotes { get; private set; }
     public bool IsContacts { get; private set; }
-    public bool IsChat { get; private set; }
     public bool IsDemo => _services.Config.DemoMode && _services.Config.Accounts.Count == 0;
     public string DemoBadge => IsDemo ? "Demo" : "";
     public string StatusText { get; private set; } = "";
     public string SearchText { get; set; } = "";
+    /// <summary>The account of the Calendar and Contacts views (display name, or All accounts). Mail uses <see cref="Scope"/>.</summary>
     public string SelectedAccount { get; private set; } = "All accounts";
-    /// <summary>Grouping by account only applies when every account is in view.</summary>
-    public bool IsAllAccounts => SelectedAccount == "All accounts";
-    public string SelectedFolder { get; private set; } = "Inbox";
+
+    // ---------- Mail scope and sidebar (Mail UI spec §3) ----------
+
+    /// <summary>What Mail shows: a unified folder, a standard folder of one account, or one custom folder (stable ids).</summary>
+    public MailScope Scope { get; private set; } = MailScope.UnifiedInbox;
+
+    /// <summary>The visible sidebar rows: All accounts with its unified folders, then every account and its folders.</summary>
+    public ObservableCollection<MailNavRow> NavRows { get; } = [];
+    private IReadOnlyList<MailNavNode> _nav = [];
+    private bool _scopeNotSynced;
+
+    /// <summary>Grouping by account only applies to a unified view.</summary>
+    public bool IsAllAccounts => Scope.IsUnified;
+
+    /// <summary>The accounts Mail works with: the configured accounts, or the two sample accounts in demo mode.</summary>
+    public IReadOnlyList<AccountConfig> MailAccounts => IsDemo ? SampleCatalog.Accounts() : _services.Config.Accounts;
+
+    private AccountConfig? ScopeAccount => Scope.AccountId is null ? null : MailAccounts.FirstOrDefault(a => a.Id == Scope.AccountId);
+
+    /// <summary>The folder part of the scope: "Inbox", or a custom folder's name.</summary>
+    public string SelectedFolder => Scope.Role != FolderRole.Other ? MailScope.RoleLabel(Scope.Role)
+        : ScopeAccount?.Folders.Known.FirstOrDefault(f => f.Id == Scope.FolderId)?.Name ?? Scope.FolderId ?? "";
+
+    /// <summary>The account part of the scope: "All accounts" or the account's name.</summary>
+    public string ScopeAccountLabel => Scope.IsUnified ? "All accounts" : ScopeAccount is { } a ? (string.IsNullOrWhiteSpace(a.DisplayName) ? a.Address : a.DisplayName) : "";
+
+    /// <summary>List header: "Inbox · All accounts", "Sent · Work".</summary>
+    public string ScopeTitle => $"{SelectedFolder} · {ScopeAccountLabel}";
+
+    /// <summary>Selects what Mail shows; an account or folder that no longer exists falls back to the unified Inbox, visibly.</summary>
+    public void SetScope(MailScope? scope)
+    {
+        scope ??= MailScope.UnifiedInbox;
+        if (!scope.IsUnified && MailAccounts.All(a => a.Id != scope.AccountId))
+            scope = MailScope.UnifiedInbox;
+        Scope = scope;
+        if (!IsDemo && _services.Config.Layout.MailScope != scope.Key)
+        {
+            _services.Config.Layout.MailScope = scope.Key;
+            SaveConfig();
+        }
+
+        foreach (var row in NavRows)
+            row.IsSelected = row.Scope == Scope;
+        RaiseScope();
+        _ = ReloadMessagesAsync();
+    }
+
+    /// <summary>A standard folder in the current account part of the scope (keyboard shortcuts Ctrl+Shift+1…6).</summary>
+    public void SetFolder(FolderRole role) => SetScope(new MailScope(Scope.AccountId, role));
+
+    public void ToggleNav(MailNavRow row)
+    {
+        if (!row.HasChildren)
+            return;
+        row.IsExpanded = !row.IsExpanded;
+        var collapsed = _services.Config.Layout.CollapsedNav;
+        collapsed.Remove(row.Key);
+        if (!row.IsExpanded)
+            collapsed.Add(row.Key);
+        if (!IsDemo)
+            SaveConfig();
+        RebuildNavRows();
+    }
+
+    /// <summary>Recounts unread messages and rebuilds the sidebar (after a sync, a read change, a move).</summary>
+    public async Task RefreshNavigationAsync()
+    {
+        IReadOnlyList<FolderCount> counts;
+        if (IsDemo)
+            counts = SampleCatalog.Counts();
+        else
+            counts = [.. await _services.Store.CountByFolderAsync(CancellationToken.None).ConfigureAwait(true), .. _services.Cache.Counts()];
+        _nav = MailNavigation.Build(MailAccounts, counts);
+        RebuildNavRows();
+    }
+
+    private void RebuildNavRows()
+    {
+        var collapsed = new HashSet<string>(_services.Config.Layout.CollapsedNav, StringComparer.Ordinal);
+        var rows = new List<MailNavRow>();
+        void Add(IEnumerable<MailNavNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                var row = new MailNavRow(node, expanded: true);
+                row.IsExpanded = !collapsed.Contains(row.Key);
+                row.IsSelected = row.Scope == Scope;
+                rows.Add(row);
+                if (row.HasChildren && row.IsExpanded)
+                    Add(node.Children);
+            }
+        }
+
+        Add(_nav);
+        NavRows.Clear();
+        foreach (var row in rows)
+            NavRows.Add(row);
+        NavRowsChanged?.Invoke();
+    }
+
+    /// <summary>Raised after the sidebar rows were rebuilt, so the view can restore the selected row.</summary>
+    public event Action? NavRowsChanged;
+
+    /// <summary>The (account, folder id) pairs the current scope reads, with each account's real folder id.</summary>
+    private List<(AccountConfig Account, string FolderId)> FoldersInScope()
+    {
+        if (Scope.IsUnified)
+        {
+            return MailAccounts.Select(a => (a, SpecialFolders.TryResolve(a, Scope.Role)))
+                .Where(pair => pair.Item2 is not null).Select(pair => (pair.a, pair.Item2!)).ToList();
+        }
+
+        if (ScopeAccount is not { } account)
+            return [];
+        var id = Scope.Role == FolderRole.Other ? Scope.FolderId : SpecialFolders.TryResolve(account, Scope.Role);
+        return id is null ? [] : [(account, id)];
+    }
+
+    private void RaiseScope()
+    {
+        OnPropertyChanged(nameof(Scope));
+        OnPropertyChanged(nameof(SelectedFolder));
+        OnPropertyChanged(nameof(ScopeAccountLabel));
+        OnPropertyChanged(nameof(ScopeTitle));
+        OnPropertyChanged(nameof(IsAllAccounts));
+        NewMailCommand.NotifyCanExecuteChanged();
+    }
     public bool FoldersHidden => FoldersDock == DockEdge.Hidden;
+    public string SidebarToggleLabel => FoldersHidden ? "Show accounts and folders" : "Hide accounts and folders";
     public bool FoldersAreBand => FoldersDock is DockEdge.Top or DockEdge.Bottom;
     public DockEdge FoldersDock => _services.Config.Layout.FoldersDock;
     public DockEdge ReadingDock => _services.Config.Layout.ReadingDock;
@@ -356,21 +485,21 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The local To-do workspace (lists, smart views, calendar, reminders).</summary>
     public Alondra1.App.Tasks.TodoViewModel Todo { get; }
 
-    /// <summary>The shared organizer pane is used by Calendar, Notes, Contacts, and Chat. To-do has its own view.</summary>
+    /// <summary>The shared organizer pane is used by Calendar and Contacts. To-do and Notes have their own views.</summary>
     public bool ShowOrganizer => !IsMail && !IsTasks && !IsNotes;
 
     // ---------- Two-row shell: header search, module toolbar, connection status ----------
 
     public WorkspaceChoice CurrentWorkspace => Workspaces.First(item => item.IsSelected || item.Name == WorkspaceName);
 
-    /// <summary>Calendar, Notes, and Chat have no search function, so the header search is hidden there.</summary>
+    /// <summary>Calendar has no search function yet, so the header search is hidden there.</summary>
     public bool HasSearch => CurrentWorkspace.SearchPlaceholder is not null;
     public string SearchPlaceholder => CurrentWorkspace.SearchPlaceholder ?? "";
 
     /// <summary>The query the header search box should show for the current module.</summary>
     public string ModuleSearchText => IsMail ? SearchText : IsTasks ? Todo.SearchText : IsNotes ? Notes.SearchText : IsContacts ? ContactQuery : "";
 
-    /// <summary>Mail, Calendar, Notes, and Contacts are filtered by account; local To-do and Chat are not.</summary>
+    /// <summary>Mail, Calendar, and Contacts are filtered by account; local To-do and Notes are not.</summary>
     public bool HasAccountSelector => IsMail || IsCalendar || IsContacts;
     /// <summary>Mail chooses its account in the view settings; the other workspaces keep the toolbar selector.</summary>
     public bool ShowToolbarAccountSelector => IsCalendar || IsContacts;
@@ -438,8 +567,8 @@ public sealed partial class MainViewModel : ObservableObject
         ShowFolderLabels = width >= 960;
         FolderTabsAsCombo = width < 760;
         ShowNewLabel = width >= 560;
-        string[] overflow = width < 560 ? ["Calendar", "To-do", "Notes", "Contacts", "Chat"]
-            : width < 720 ? ["Notes", "Contacts", "Chat"]
+        string[] overflow = width < 560 ? ["Calendar", "To-do", "Notes", "Contacts"]
+            : width < 720 ? ["Notes", "Contacts"]
             : [];
         foreach (var workspace in Workspaces)
             workspace.InOverflow = overflow.Contains(workspace.Name) && !workspace.IsSelected;
@@ -467,7 +596,12 @@ public sealed partial class MainViewModel : ObservableObject
             _month = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         _chosenDay = IsDemo ? 15 : DateTime.Today.Day;
         RefreshAccountChoices();
-        RefreshFolders();
+        Alondra1.Core.Config.ConfigWorkflow.NormalizeMailLayout(_services.Config);
+        Scope = (IsDemo ? null : MailScope.Parse(_services.Config.Layout.MailScope)) ?? MailScope.UnifiedInbox;
+        if (!Scope.IsUnified && MailAccounts.All(a => a.Id != Scope.AccountId))
+            Scope = MailScope.UnifiedInbox;
+        RaiseScope();
+        await RefreshNavigationAsync().ConfigureAwait(true);
         await ReloadMessagesAsync().ConfigureAwait(true);
         LoadOrganizerDemoOrEmpty();
         Todo.Refresh();
@@ -477,7 +611,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void SelectWorkspace(string? name)
     {
-        name ??= "Mail";
+        // An unknown module (for example "Chat" from an earlier version) opens Mail.
+        if (name is null || Workspaces.All(item => item.Name != name))
+            name = "Mail";
         WorkspaceName = name;
         WorkspaceGlyph = Workspaces.First(item => item.Name == name).Glyph;
         IsMail = name == "Mail";
@@ -485,37 +621,35 @@ public sealed partial class MainViewModel : ObservableObject
         IsTasks = name == "To-do";
         IsNotes = name == "Notes";
         IsContacts = name == "Contacts";
-        IsChat = name == "Chat";
         foreach (var workspace in Workspaces)
             workspace.IsSelected = workspace.Name == name;
         SetShellWidth(_shellWidth);
         RaiseChrome();
-        if (!IsDemo && !IsMail && !IsChat && !IsTasks && !IsNotes)
+        if (!IsDemo && !IsMail && !IsTasks && !IsNotes)
             _ = LoadOrganizerAsync();
     }
 
+    /// <summary>The account of the Calendar and Contacts views (their toolbar selector). Mail has its own scope.</summary>
     public void SetAccount(string? account)
     {
         SelectedAccount = string.IsNullOrWhiteSpace(account) || !AccountChoices.Contains(account) ? "All accounts" : account;
-        var remembered = IsAllAccounts ? null : SelectedAccount;
+        var remembered = SelectedAccount == "All accounts" ? null : SelectedAccount;
         if (!IsDemo && _services.Config.Layout.MailAccount != remembered)
         {
             _services.Config.Layout.MailAccount = remembered;
             SaveConfig();
         }
 
-        _ = ReloadMessagesAsync();
         OnPropertyChanged(nameof(SelectedAccount));
-        OnPropertyChanged(nameof(IsAllAccounts));
+        if (!IsDemo && (IsCalendar || IsContacts))
+            _ = LoadOrganizerAsync();
     }
 
-    public void SetFolder(string? folder)
+    /// <summary>Diagnostics (--account=name): Mail shows that account's Inbox when exactly one account has the name.</summary>
+    public void SetMailAccountByName(string name)
     {
-        if (string.IsNullOrWhiteSpace(folder))
-            return;
-        SelectedFolder = folder;
-        _ = ReloadMessagesAsync();
-        OnPropertyChanged(nameof(SelectedFolder));
+        var named = MailAccounts.Where(a => a.DisplayName == name).ToList();
+        SetScope(named.Count == 1 ? new MailScope(named[0].Id, FolderRole.Inbox) : MailScope.UnifiedInbox);
     }
 
     public void ApplySearch(string? text)
@@ -667,6 +801,7 @@ public sealed partial class MainViewModel : ObservableObject
                 UpdateStatus(synced == 1 ? "1 account up to date" : $"{synced} accounts up to date", ConnectionState.Ready, summary: true);
             else
                 UpdateStatus(string.Join("\n", failures), allOffline ? ConnectionState.Offline : ConnectionState.Error, summary: true);
+            await RefreshNavigationAsync().ConfigureAwait(true);
             await ReloadMessagesAsync().ConfigureAwait(true);
         }
         finally
@@ -815,17 +950,26 @@ public sealed partial class MainViewModel : ObservableObject
         var total = 0;
         try
         {
+            var targets = FoldersInScope();
+            // A Personal-mode folder that is not kept on this PC has no local copy: say so instead of "no messages".
+            _scopeNotSynced = targets.Count > 0 && targets.All(t => !IsDemo && t.Account.Mode == AccountMode.Personal && !MailNavigation.SyncedHere(t.Account, t.FolderId));
             if (IsDemo)
             {
-                found = SampleCatalog.Query(SelectedFolder, SelectedAccount, SearchText);
-                total = searching ? SampleCatalog.Query(SelectedFolder, SelectedAccount, "").Count : found.Count;
+                var list = new List<StoredMessage>();
+                foreach (var (account, folderId) in targets)
+                {
+                    var all = SampleCatalog.QueryScope(folderId, account.Id, "");
+                    total += all.Count;
+                    list.AddRange(searching ? SampleCatalog.QueryScope(folderId, account.Id, SearchText) : all);
+                }
+
+                found = list.OrderByDescending(item => item.ReceivedUtc).ThenBy(item => item.AccountId, StringComparer.Ordinal).ThenByDescending(item => item.Uid).ToList();
             }
             else
             {
                 var list = new List<StoredMessage>();
-                foreach (var account in AccountsInView())
+                foreach (var (account, folderId) in targets)
                 {
-                    var folderId = ResolveFolder(account, SelectedFolder);
                     if (account.Mode == AccountMode.Personal)
                     {
                         var all = await _services.Store.ListAsync(account.Id, folderId, CancellationToken.None).ConfigureAwait(true);
@@ -842,7 +986,8 @@ public sealed partial class MainViewModel : ObservableObject
                     }
                 }
 
-                found = list.OrderByDescending(item => item.ReceivedUtc).ToList();
+                // One chronological list across accounts; ties broken by account and uid so the order is stable.
+                found = list.OrderByDescending(item => item.ReceivedUtc).ThenBy(item => item.AccountId, StringComparer.Ordinal).ThenByDescending(item => item.Uid).ToList();
             }
         }
         finally
@@ -871,6 +1016,9 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>What the list shows when it has no rows: loading, an empty folder, no search results, or a sync problem.</summary>
     public string ListState => _loadingMessages && Messages.Count == 0 ? "loading"
         : Messages.Count > 0 ? "rows"
+        : MailAccounts.Count == 0 ? "noaccount"
+        : FoldersInScope().Count == 0 ? "nofolder"
+        : _scopeNotSynced ? "notsynced"
         : !string.IsNullOrWhiteSpace(SearchText) ? "nomatch"
         : Connection is ConnectionState.Error ? "error"
         : Connection is ConnectionState.Offline ? "offline"
@@ -881,6 +1029,9 @@ public sealed partial class MainViewModel : ObservableObject
     public string EmptyTitle => ListState switch
     {
         "loading" => "Loading messages…",
+        "noaccount" => "No mail account yet",
+        "nofolder" => $"No {SelectedFolder} folder",
+        "notsynced" => "This folder is not kept on this PC",
         "nomatch" => "No messages match your search",
         "error" => "Sync failed",
         "offline" => "You are offline",
@@ -890,10 +1041,13 @@ public sealed partial class MainViewModel : ObservableObject
     public string EmptyDetail => ListState switch
     {
         "loading" => "",
+        "noaccount" => "Add an account in Settings → Accounts to read and send mail here.",
+        "nofolder" => Scope.IsUnified ? $"None of your accounts has a {SelectedFolder} folder." : $"{ScopeAccountLabel} has no {SelectedFolder} folder on its server.",
+        "notsynced" => "Choose the folders to keep in the account's settings, then sync (F5).",
         "nomatch" => $"Nothing in {SelectedFolder} matches “{SearchText.Trim()}”.",
         "error" => "Messages could not be loaded. Point at the Sync button for details, or press F5 to try again.",
         "offline" => "Messages already on this PC show here. Press F5 when you are back online.",
-        _ => $"Messages in {SelectedFolder} appear here.",
+        _ => $"{SelectedFolder} in {ScopeAccountLabel} has no messages on this PC.",
     };
 
     private void RaiseListState()
@@ -1003,6 +1157,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         _selection = [];
         await ReloadMessagesAsync().ConfigureAwait(true);
+        await RefreshNavigationAsync().ConfigureAwait(true);
     }
 
     private async Task ToggleReadAsync()
@@ -1030,6 +1185,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         RaiseReader();
+        await RefreshNavigationAsync().ConfigureAwait(true);
     }
 
     // ---------- One pane at a time (client spec §5.1) ----------
@@ -1292,15 +1448,6 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(DemoBadge));
     }
 
-    private void RefreshFolders()
-    {
-        Folders.Clear();
-        foreach (var folder in new[] { "Inbox", "Sent", "Drafts", "Archive", "Trash" })
-            Folders.Add(folder);
-        SelectedFolder = "Inbox";
-        OnPropertyChanged(nameof(SelectedFolder));
-    }
-
     private IEnumerable<AccountConfig> AccountsInView()
     {
         if (SelectedAccount == "All accounts")
@@ -1443,9 +1590,12 @@ public sealed partial class MainViewModel : ObservableObject
         var message = SelectedMessage;
         if (message is null)
             return null;
+        // The reply is sent from the account that received the message (Mail UI spec §3.2), never the first account.
+        var account = MailAccounts.FirstOrDefault(a => a.Id == message.AccountId);
         return new OutgoingMail
         {
-            To = [message.FromAddress],
+            AccountId = ComposeIdentity.DefaultAccount(MailAccounts, Scope, message.AccountId, null),
+            To = all ? ComposeIdentity.ReplyAllRecipients(message, account?.Address ?? "") : [message.FromAddress],
             Subject = message.Subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase) ? message.Subject : "Re: " + message.Subject,
             TextBody = $"\n\n---\n{ReaderBody}",
             InReplyTo = message.MessageId,
@@ -1459,6 +1609,7 @@ public sealed partial class MainViewModel : ObservableObject
             return null;
         return new OutgoingMail
         {
+            AccountId = ComposeIdentity.DefaultAccount(MailAccounts, Scope, message.AccountId, null),
             Subject = message.Subject.StartsWith("Fw:", StringComparison.OrdinalIgnoreCase) ? message.Subject : "Fw: " + message.Subject,
             TextBody = $"\n\n---\nFrom: {message.FromName}\n{ReaderBody}",
         };
@@ -1520,7 +1671,6 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsTasks));
         OnPropertyChanged(nameof(IsNotes));
         OnPropertyChanged(nameof(IsContacts));
-        OnPropertyChanged(nameof(IsChat));
         OnPropertyChanged(nameof(ShowOrganizer));
         OnPropertyChanged(nameof(HasSearch));
         OnPropertyChanged(nameof(ShowSearchBox));
@@ -1545,6 +1695,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(FolderBreadth));
         OnPropertyChanged(nameof(ReadingBreadth));
         OnPropertyChanged(nameof(FoldersHidden));
+        OnPropertyChanged(nameof(SidebarToggleLabel));
         OnPropertyChanged(nameof(FoldersAreBand));
         OnPropertyChanged(nameof(RowHeight));
     }

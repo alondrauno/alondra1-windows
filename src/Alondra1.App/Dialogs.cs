@@ -118,7 +118,7 @@ public static class Dialogs
         mail.Children.Add(Subtitle("Layout"));
         var density = new ComboBox { ItemsSource = Enum.GetNames<Density>(), SelectedItem = model.Config.Appearance.Density.ToString(), Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
         var readingDock = new ComboBox { ItemsSource = Enum.GetNames<Alondra1.Core.Layout.DockEdge>(), SelectedItem = model.Config.Layout.ReadingDock.ToString(), Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
-        var foldersDock = new ComboBox { ItemsSource = Enum.GetNames<Alondra1.Core.Layout.DockEdge>(), SelectedItem = model.Config.Layout.FoldersDock.ToString(), Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
+        var foldersDock = new ComboBox { ItemsSource = new[] { "Left", "Right", "Hidden" }, SelectedItem = model.Config.Layout.FoldersDock.ToString(), Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
         mail.Children.Add(Labeled("Message rows", density));
         mail.Children.Add(Labeled("Reading pane", readingDock));
         mail.Children.Add(Labeled("Folders", foldersDock));
@@ -610,8 +610,15 @@ public static class Dialogs
         var window = Create(string.IsNullOrWhiteSpace(mail.Subject) ? "New message" : mail.Subject, owner, 720, 560, scroll: false);
         window.MinWidth = 460;
         window.MinHeight = 360;
-        var accounts = model.IsDemo ? ["Work"] : model.Config.Accounts.Select(account => account.DisplayName).ToList();
-        var from = new ComboBox { ItemsSource = accounts, SelectedIndex = 0 };
+        // From (Mail UI spec §3.2): every account by name and address, matched by its stable id. Without a safe default
+        // (the All accounts view and no default account) nothing is preselected and the message cannot go until one is chosen.
+        var accounts = model.MailAccounts.ToList();
+        var from = new ComboBox
+        {
+            ItemsSource = accounts.Select(ComposeIdentity.Label).ToList(),
+            SelectedIndex = accounts.FindIndex(a => a.Id == mail.AccountId),
+        };
+        AccountConfig? Chosen() => from.SelectedIndex >= 0 && from.SelectedIndex < accounts.Count ? accounts[from.SelectedIndex] : null;
         var to = Field(string.Join(", ", mail.To));
         var subject = Field(mail.Subject);
         var body = new TextBox
@@ -644,11 +651,28 @@ public static class Dialogs
         Frames.TryGetValue(window, out var parts);
         parts!.Body.Content = layout;
 
-        var account = model.Config.Accounts.FirstOrDefault();
+        var account = Chosen();
         if (account?.Incoming.Protocol == MailProtocol.Pop3 && account.Mode == AccountMode.Online)
             Hint(window, "Draft kept for this session only", "This POP3 account keeps the draft in memory for this session. The server does not store drafts.");
+        if (account is null && accounts.Count > 1)
+            Hint(window, "Choose the account to send from", "This message has no sending account yet. Pick one in From. Settings → Mail can set a default for new messages.");
         var actions = Footer(window);
-        actions.Children.Add(Button("Save draft", async () =>
+        Button? saveButton = null;
+        Button? sendButton = null;
+        void UpdateActions()
+        {
+            var ready = Chosen() is not null || model.IsDemo;
+            if (saveButton is not null)
+                saveButton.IsEnabled = ready;
+            if (sendButton is not null)
+            {
+                sendButton.IsEnabled = ready;
+                sendButton.ToolTip = ready ? "Send from " + (Chosen() is { } a ? ComposeIdentity.Label(a) : "the sample account") : "Choose the account to send from first";
+            }
+        }
+
+        from.SelectionChanged += (_, _) => UpdateActions();
+        actions.Children.Add(saveButton = Button("Save draft", async () =>
         {
             if (model.IsDemo)
             {
@@ -657,13 +681,13 @@ public static class Dialogs
             }
 
             Fill(mail, from, to, subject, body);
-            var selected = model.Config.Accounts.FirstOrDefault(item => item.DisplayName == from.SelectedItem as string) ?? model.Config.Accounts.FirstOrDefault();
-            if (selected is null)
+            if (Chosen() is not { } selected)
                 return;
+            mail.AccountId = selected.Id;
             await model.SaveDraft(selected, mail);
             window.Close();
         }));
-        actions.Children.Add(Primary("Send", async () =>
+        actions.Children.Add(sendButton = Primary("Send", async () =>
         {
             if (model.IsDemo)
             {
@@ -672,14 +696,15 @@ public static class Dialogs
             }
 
             Fill(mail, from, to, subject, body);
-            var selected = model.Config.Accounts.FirstOrDefault(item => item.DisplayName == from.SelectedItem as string);
-            if (selected is null)
+            if (Chosen() is not { } selected)
                 return;
+            mail.AccountId = selected.Id;
             var result = await model.Send(selected, mail);
             Alert(window, result.Acceptance + (result.Error is null ? "" : "\n" + result.Error), "Alondra1");
             window.Close();
         }));
-        window.Loaded += (_, _) => (to.Text.Length == 0 ? to : body).Focus();
+        UpdateActions();
+        window.Loaded += (_, _) => (Chosen() is null && accounts.Count > 1 ? (Control)from : to.Text.Length == 0 ? to : body).Focus();
         window.ShowDialog();
 
         void AddRow(int row, string label, Control control)
@@ -700,7 +725,6 @@ public static class Dialogs
         mail.To = to.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         mail.Subject = subject.Text;
         mail.TextBody = body.Text;
-        mail.FromName = from.SelectedItem as string ?? "";
     }
 
     private static bool ConfirmPlaintext(Window owner, AccountConfig account, bool confirmed)
