@@ -323,6 +323,9 @@ public partial class MainWindow : Window
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--day=", StringComparison.Ordinal)) is { } day && int.TryParse(day["--day=".Length..], out var dayNumber))
             _model.SelectDay(_model.Days.FirstOrDefault(d => d.IsDay && d.Day == dayNumber));
         // --search-scope=Module|AllMail|All: the reach of the header search; --search=<text>: the search state.
+        // --reader-details: the reader with its details expanded.
+        if (App.Arguments.Contains("--reader-details"))
+            _model.ReaderDetailsOpen = true;
         // --mail-filter=unread,flagged,attachments: list filters (for snapshots of the filtered and empty-filtered states).
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--mail-filter=", StringComparison.Ordinal)) is { } filterArg)
         {
@@ -822,6 +825,30 @@ public partial class MainWindow : Window
             menu.Items.Add(MenuItem(row.IsExpanded ? "Collapse" : "Expand", () => _model.ToggleNav(row)));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuItem("Add or manage accounts…", () => _model.AccountsCommand.Execute(null)));
+    }
+
+    // ---------- Reader header ----------
+
+    private void ReaderDetails_Click(object sender, RoutedEventArgs e) => _model.ReaderDetailsOpen = !_model.ReaderDetailsOpen;
+
+    /// <summary>Sender actions: copy the address (or name and address), or write a new message to the sender.</summary>
+    private void ReaderSender_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } button || _model.SelectedMessage is not { } message)
+            return;
+        menu.Items.Clear();
+        var address = message.FromAddress?.Trim() ?? "";
+        var copy = MenuItem("Copy address", () => Clipboard.SetText(address));
+        copy.IsEnabled = address.Length > 0;
+        menu.Items.Add(copy);
+        menu.Items.Add(MenuItem("Copy name and address", () => Clipboard.SetText(_model.ReaderSender)));
+        var write = MenuItem($"New mail to {(address.Length > 0 ? address : "sender")}", () =>
+            _model.ComposeTo(address, message.AccountId));
+        write.IsEnabled = address.Length > 0;
+        menu.Items.Add(write);
+        menu.PlacementTarget = button;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
     }
 
     // ---------- Message list filters and sort ----------

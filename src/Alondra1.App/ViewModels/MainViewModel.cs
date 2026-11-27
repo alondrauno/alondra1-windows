@@ -406,6 +406,63 @@ public sealed partial class MainViewModel : ObservableObject
         ? "1 remote image is blocked to protect your privacy."
         : $"{BlockedImages} remote images are blocked to protect your privacy.";
     public string TrustSenderLabel => SelectedMessage is { FromAddress.Length: > 0 } message ? $"Always load from {message.FromAddress}" : "Always load from this sender";
+    // ---------- Reader header (Mail UI spec §6.1) ----------
+
+    public bool HasMessage => SelectedMessage is not null;
+
+    /// <summary>A new message to one address, sent from the account that received the open message.</summary>
+    public void ComposeTo(string address, string? accountId) => ComposeRequested?.Invoke(new OutgoingMail
+    {
+        To = [address],
+        AccountId = ComposeIdentity.DefaultAccount(MailAccounts, Scope, accountId, _services.Config.Reading.DefaultSendAccountId),
+    });
+    public string ReaderSenderName => SelectedMessage is { } m ? MailListView.SenderName(m) : "";
+    public string ReaderSenderAddress => SelectedMessage is { FromAddress: { Length: > 0 } a } m && a != ReaderSenderName ? a : "";
+    public bool HasReaderSenderAddress => ReaderSenderAddress.Length > 0;
+
+    /// <summary>Local initials of the sender (no avatar service is ever contacted).</summary>
+    public string ReaderInitials
+    {
+        get
+        {
+            var words = ReaderSenderName.Split([' ', '.', '@', '_', '-', '"', (char)39], StringSplitOptions.RemoveEmptyEntries);
+            var letters = words.Length >= 2 ? $"{words[0][0]}{words[1][0]}" : words.Length == 1 ? words[0][..1] : "?";
+            return letters.ToUpperInvariant();
+        }
+    }
+
+    /// <summary>The account that received the message: name and address, so two accounts never look alike.</summary>
+    public string ReaderAccountLabel => SelectedMessage is { } m && MailAccounts.FirstOrDefault(a => a.Id == m.AccountId) is { } account
+        ? ComposeIdentity.Label(account) : SelectedMessage?.AccountName ?? "";
+
+    public string ReaderDateFull => SelectedMessage is { } m
+        ? $"{m.ReceivedUtc.ToLocalTime():dddd d MMMM yyyy, HH:mm:ss} (UTC{m.ReceivedUtc.ToLocalTime():zzz})" : "";
+
+    /// <summary>Every recipient on its own line (the header line shows them shortened).</summary>
+    public string ReaderRecipientsFull => SelectedMessage is { Recipients: { Length: > 0 } r }
+        ? string.Join(Environment.NewLine, Alondra1.Core.Mail.ComposeIdentity.SplitAddresses(r)) : "";
+    public bool HasReaderRecipients => ReaderRecipientsFull.Length > 0;
+
+    [ObservableProperty]
+    private bool _readerDetailsOpen;
+
+    public string ReaderDetailsLabel => ReaderDetailsOpen ? "Hide details" : "Details";
+
+    partial void OnReaderDetailsOpenChanged(bool value) => OnPropertyChanged(nameof(ReaderDetailsLabel));
+
+    /// <summary>No message open: a quiet centered state that matches the list (never "select" when there is nothing).</summary>
+    public string ReaderEmptyTitle => Messages.Count == 0 ? "Nothing to read here" : "No message selected";
+    public string ReaderEmptyDetail => Messages.Count == 0 ? "Messages you open from the list appear here." : "Choose a message in the list to read it.";
+
+    /// <summary>Tries the HTML version again after a rendering failure (the plain text stays until it works).</summary>
+    public IRelayCommand RetryHtmlCommand => _retryHtml ??= new RelayCommand(() =>
+    {
+        _htmlFailure = null;
+        _htmlChoice = true;
+        RenderReader();
+    });
+    private IRelayCommand? _retryHtml;
+
     public string? HtmlFailure => _htmlFailure;
     public bool ShowHtmlFailure => _htmlFailure is not null && !string.IsNullOrWhiteSpace(_body?.Html);
 
@@ -781,6 +838,9 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ReaderMeta));
         OnPropertyChanged(nameof(ReaderTo));
         OnPropertyChanged(nameof(HasReaderTo));
+        foreach (var name in new[] { nameof(HasMessage), nameof(ReaderSenderName), nameof(ReaderSenderAddress), nameof(HasReaderSenderAddress), nameof(ReaderInitials),
+            nameof(ReaderAccountLabel), nameof(ReaderDateFull), nameof(ReaderRecipientsFull), nameof(HasReaderRecipients), nameof(ReaderEmptyTitle), nameof(ReaderEmptyDetail) })
+            OnPropertyChanged(name);
         RenderReader();
 
         ReplyCommand.NotifyCanExecuteChanged();

@@ -370,6 +370,25 @@
   </Style>
 
   <!-- Header search: 40 px, room for the search icon on the left and a clear button on the right. -->
+  <!-- Selectable read-only text (message details): looks like a TextBlock, but the text can be selected and copied. -->
+  <Style x:Key="ReadOnlyText" TargetType="TextBox">
+    <Setter Property="IsReadOnly" Value="True"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="IsTabStop" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TextBox">
+          <ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <!-- Message list column header: flat text button (11 px muted label) that sorts by its column. -->
   <Style x:Key="ColumnHeaderButton" TargetType="Button">
     <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>

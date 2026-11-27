@@ -54,7 +54,7 @@ public static class ComposeIdentity
         return result;
     }
 
-    private static IEnumerable<string> SplitAddresses(string list)
+    public static IEnumerable<string> SplitAddresses(string list)
     {
         if (string.IsNullOrWhiteSpace(list))
             yield break;

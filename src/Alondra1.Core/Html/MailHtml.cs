@@ -60,7 +60,7 @@ public static class MailHtml
         var css = $$"""
             html,body{margin:0;background:{{colors.Background}};color:{{colors.Text}}}
             body{padding:4px 2px 16px;font:14px/1.55 "Segoe UI",system-ui,sans-serif}
-            pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:inherit}
+            pre{margin:0;max-width:90ch;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:inherit}
             a{color:{{colors.Link}}}
             ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-button{display:none}::-webkit-scrollbar-thumb{background:rgba(128,128,128,.55);border-radius:3px}::-webkit-scrollbar-track{background:transparent}
             """;

@@ -709,11 +709,86 @@
                   </StackPanel>
                 </Border>
               </Grid>
-              <TextBlock x:Name="ReaderSubjectText" DockPanel.Dock="Top" Text="{Binding ReaderSubject}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Margin="{StaticResource PaneSectionGapTop}"/>
-              <TextBlock DockPanel.Dock="Top" Text="{Binding ReaderSender}" TextWrapping="Wrap" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
-              <TextBlock DockPanel.Dock="Top" Text="{Binding ReaderTo}" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,2,0,0"
-                         TextTrimming="CharacterEllipsis" ToolTip="{Binding ReaderTo}" Visibility="{Binding HasReaderTo, Converter={StaticResource BoolVis}}"/>
-              <TextBlock DockPanel.Dock="Top" Text="{Binding ReaderMeta}" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,2,0,0"/>
+              <!-- Message header (Mail UI spec §6.1): subject; sender (local initials, name, address) with the message actions;
+                   recipients and the receiving account with the date; Details expands the full metadata. Hidden without a message. -->
+              <StackPanel x:Name="ReaderMessageHeader" DockPanel.Dock="Top" Visibility="{Binding HasMessage, Converter={StaticResource BoolVis}}">
+                <TextBlock x:Name="ReaderSubjectText" Text="{Binding ReaderSubject}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" Margin="{StaticResource PaneSectionGapTop}"
+                           AutomationProperties.HeadingLevel="Level2"/>
+                <Grid Margin="0,10,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <Border Width="36" Height="36" CornerRadius="18" Background="{DynamicResource SelectedBrush}" VerticalAlignment="Top" Margin="0,2,10,0"
+                          AutomationProperties.Name="Sender">
+                    <TextBlock Text="{Binding ReaderInitials}" FontWeight="SemiBold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextBrush}"/>
+                  </Border>
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <Button x:Name="ReaderSenderButton" Style="{StaticResource ColumnHeaderButton}" FontSize="14" Foreground="{DynamicResource TextBrush}" HorizontalAlignment="Left"
+                            Click="ReaderSender_Click" AutomationProperties.Name="{Binding ReaderSender, StringFormat=Sender {0}. Open sender actions}"
+                            ToolTip="Copy the address or write to the sender">
+                      <TextBlock Text="{Binding ReaderSenderName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                      <Button.ContextMenu><ContextMenu/></Button.ContextMenu>
+                    </Button>
+                    <TextBlock Text="{Binding ReaderSenderAddress}" FontSize="12" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding ReaderSenderAddress}" Visibility="{Binding HasReaderSenderAddress, Converter={StaticResource BoolVis}}"/>
+                  </StackPanel>
+                  <!-- The same commands as the toolbar (same state), next to the message they act on. -->
+                  <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
+                    <Button Style="{StaticResource IconButton}" Command="{Binding ReplyCommand}" AutomationProperties.Name="Reply" ToolTip="Reply (Ctrl+R)">
+                      <ui:Alondra1Icon Kind="Reply" IconSize="18"/>
+                    </Button>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding ReplyAllCommand}" AutomationProperties.Name="Reply all" ToolTip="Reply all">
+                      <ui:Alondra1Icon Kind="ReplyAll" IconSize="18"/>
+                    </Button>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding ForwardCommand}" AutomationProperties.Name="Forward" ToolTip="Forward (Ctrl+Shift+F)">
+                      <ui:Alondra1Icon Kind="Forward" IconSize="18"/>
+                    </Button>
+                  </StackPanel>
+                </Grid>
+                <DockPanel Margin="46,6,0,0">
+                  <Button DockPanel.Dock="Right" Style="{StaticResource ColumnHeaderButton}" FontSize="12" Click="ReaderDetails_Click" VerticalAlignment="Top"
+                          Content="{Binding ReaderDetailsLabel}" AutomationProperties.Name="{Binding ReaderDetailsLabel, StringFormat='{}{0}: recipients, account, date and storage'}"/>
+                  <StackPanel>
+                    <TextBlock Text="{Binding ReaderTo}" Foreground="{DynamicResource MutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding ReaderTo}"
+                               Visibility="{Binding HasReaderTo, Converter={StaticResource BoolVis}}"/>
+                    <TextBlock Foreground="{DynamicResource MutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding ReaderDateFull}">
+                      <Run Text="{Binding ReaderMeta, Mode=OneWay}"/>
+                    </TextBlock>
+                  </StackPanel>
+                </DockPanel>
+                <!-- Details: every recipient, the receiving account (name and address), the full date with time zone, and storage. -->
+                <Border Margin="46,8,0,0" Padding="12,8" CornerRadius="{StaticResource RadiusMd}" Background="{DynamicResource SubtleBrush}"
+                        Visibility="{Binding ReaderDetailsOpen, Converter={StaticResource BoolVis}}" AutomationProperties.Name="Message details">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="From" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
+                    <TextBox Grid.Column="1" Text="{Binding ReaderSender, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="1" Text="To" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"
+                               Visibility="{Binding HasReaderRecipients, Converter={StaticResource BoolVis}}"/>
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ReaderRecipientsFull, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"
+                             Visibility="{Binding HasReaderRecipients, Converter={StaticResource BoolVis}}"/>
+                    <TextBlock Grid.Row="2" Text="Account" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ReaderAccountLabel, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="3" Text="Received" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,4"/>
+                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ReaderDateFull, Mode=OneWay}" Style="{StaticResource ReadOnlyText}" Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="4" Text="Storage" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,0,12,0"/>
+                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ReaderStatus, Mode=OneWay}" Style="{StaticResource ReadOnlyText}"/>
+                  </Grid>
+                </Border>
+              </StackPanel>
               <!-- Remote images: blocked by default (no proxy, so loading reveals this PC's address to the image host). -->
               <Border x:Name="ImageBar" DockPanel.Dock="Top" Margin="0,12,0,0" Padding="12,8" CornerRadius="{StaticResource RadiusMd}" Background="{DynamicResource SubtleBrush}"
                       Visibility="{Binding ShowImageBar, Converter={StaticResource BoolVis}}" AutomationProperties.Name="Remote images">
@@ -734,10 +809,12 @@
               </Border>
               <Border x:Name="HtmlFailureBar" DockPanel.Dock="Top" Margin="0,12,0,0" Padding="12,8" CornerRadius="{StaticResource RadiusMd}" Background="{DynamicResource SubtleBrush}"
                       Visibility="{Binding ShowHtmlFailure, Converter={StaticResource BoolVis}}">
-                <StackPanel Orientation="Horizontal">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Try HTML again" Style="{StaticResource CompactButton}" Command="{Binding RetryHtmlCommand}" Margin="8,0,0,0"
+                          ToolTip="Render the formatted version again. It stays protected: no scripts, no remote content without your consent."/>
                   <ui:Alondra1Icon Kind="Alert" IconSize="16" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
-                  <TextBlock Text="Unable to display HTML — showing the plain text." VerticalAlignment="Center" Margin="8,0,0,0" TextWrapping="Wrap"/>
-                </StackPanel>
+                  <TextBlock Text="The formatted (HTML) version couldn't be shown — showing the plain text." VerticalAlignment="Center" Margin="8,0,0,0" TextWrapping="Wrap"/>
+                </DockPanel>
               </Border>
               <!-- Attachments: files only; inline pictures stay in the body. -->
               <ItemsControl x:Name="AttachmentList" DockPanel.Dock="Top" ItemsSource="{Binding Attachments}" Margin="0,12,0,0" AutomationProperties.Name="Attachments"
@@ -770,9 +847,19 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
-              <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource LineBrush}" Margin="0,4,0,0"/>
-              <ui:MailBodyView x:Name="ReaderBody" Margin="0,8,0,0" Document="{Binding ReaderDocument}" AllowRemote="{Binding ReaderAllowRemote}"
-                               FallbackText="{Binding ReaderBody}"/>
+              <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource LineBrush}" Margin="0,4,0,0"
+                      Visibility="{Binding HasMessage, Converter={StaticResource BoolVis}}"/>
+              <Grid>
+                <ui:MailBodyView x:Name="ReaderBody" Margin="0,8,0,0" Document="{Binding ReaderDocument}" AllowRemote="{Binding ReaderAllowRemote}"
+                                 FallbackText="{Binding ReaderBody}" Visibility="{Binding HasMessage, Converter={StaticResource BoolVis}}"/>
+                <!-- No message open: a quiet centered state like the list's (no empty headers or dividers). -->
+                <StackPanel x:Name="ReaderPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="300"
+                            Visibility="{Binding HasMessage, Converter={StaticResource BoolVis}, ConverterParameter=invert}">
+                  <ui:Alondra1Icon Kind="Mail" IconSize="32" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" Opacity="0.7"/>
+                  <TextBlock Text="{Binding ReaderEmptyTitle}" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,8,0,2"/>
+                  <TextBlock Text="{Binding ReaderEmptyDetail}" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Grid>
             </DockPanel>
           </Border>
         </shell:MailDockPanel>
