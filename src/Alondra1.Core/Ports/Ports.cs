@@ -48,6 +48,8 @@ public interface IPersonalStore
     Task<IReadOnlyList<StoredAttachment>> ListAttachmentsAsync(MessageKey key, CancellationToken cancellationToken);
     /// <summary>Messages with an attachment whose file name contains every word of <paramref name="text"/> (names only).</summary>
     Task<IReadOnlyList<MessageKey>> FindByAttachmentNameAsync(string? accountId, string text, CancellationToken cancellationToken);
+    /// <summary>Downloaded attachments small enough for content search (newest first, at most <paramref name="limit"/>).</summary>
+    Task<IReadOnlyList<StoredAttachment>> ListDownloadedAttachmentsAsync(long maxBytes, int limit, CancellationToken cancellationToken);
     Task<StoredAttachment?> FindAttachmentAsync(string id, CancellationToken cancellationToken);
     Task SetAttachmentPinnedAsync(string id, bool pinned, CancellationToken cancellationToken);
     Task<IReadOnlyList<StoredAttachment>> ListUnpinnedAttachmentsAsync(string accountId, CancellationToken cancellationToken);

@@ -275,6 +275,8 @@ public sealed partial class MainViewModel : ObservableObject
             NavRows.Add(row);
         if (!IsDemo)
             ApplySyncBadges();
+        else if (SampleCatalog.AccountCount > 2)
+            SeedDemoSync();
         NavRowsChanged?.Invoke();
     }
 
@@ -476,9 +478,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         get
         {
-            var words = ReaderSenderName.Split([' ', '.', '@', '_', '-', '"', (char)39], StringSplitOptions.RemoveEmptyEntries);
-            var letters = words.Length >= 2 ? $"{words[0][0]}{words[1][0]}" : words.Length == 1 ? words[0][..1] : "?";
-            return letters.ToUpperInvariant();
+            return Alondra1.Core.Mail.ComposeIdentity.Initials(ReaderSenderName);
         }
     }
 
@@ -1125,9 +1125,31 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     /// <summary>The status area and the sidebar badges follow the per-account states.</summary>
+    /// <summary>Many-account demo (--demo-accounts=N): one account needs sign-in, one is offline, the rest are up to date.</summary>
+    private void SeedDemoSync()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var accounts = MailAccounts;
+        for (var i = 0; i < accounts.Count; i++)
+        {
+            _syncBoard.Begin(accounts[i].Id, now.AddMinutes(-1));
+            _syncBoard.Finish(accounts[i].Id, i switch
+            {
+                3 => SyncReport.Failed("The server no longer accepts the saved password.", authRequired: true),
+                4 => SyncReport.Failed("The server could not be reached.", offline: true),
+                _ => SyncReport.Done(""),
+            }, now.AddMinutes(-1));
+        }
+
+        PublishSyncStatus();
+    }
+
+    /// <summary>Accounts with a provider sync state: the configured ones (or the many-account demo's).</summary>
+    private IReadOnlyList<AccountConfig> SyncedAccounts => IsDemo ? (SampleCatalog.AccountCount > 2 ? MailAccounts : []) : _services.Config.Accounts;
+
     private void PublishSyncStatus()
     {
-        var states = _services.Config.Accounts.Select(SyncStatusOf).ToList();
+        var states = SyncedAccounts.Select(SyncStatusOf).ToList();
         var overall = AccountSyncBoard.Overall(states);
         UpdateStatus(AccountSyncBoard.Summary(states), overall switch
         {
@@ -1145,7 +1167,7 @@ public sealed partial class MainViewModel : ObservableObject
         var now = DateTimeOffset.UtcNow;
         foreach (var row in NavRows.Where(r => r.IsAccount))
         {
-            var account = _services.Config.Accounts.FirstOrDefault(a => a.Id == row.Node.AccountId);
+            var account = SyncedAccounts.FirstOrDefault(a => a.Id == row.Node.AccountId);
             row.SetSync(account is null ? null : SyncStatusOf(account), now);
         }
     }
@@ -1408,6 +1430,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool ShowListPlaceholder => ListState != "rows";
 
+    /// <summary>Column headings only above rows: never an empty table header over an empty state (review note 23).</summary>
+    public bool ShowColumnHeader => !ShowListPlaceholder;
+
+    /// <summary>No account yet: the empty state offers adding one directly.</summary>
+    public bool ShowAddAccount => !IsDemo && _services.Config.Accounts.Count == 0;
+
     public string EmptyTitle => ListState switch
     {
         "loading" => "Loading messages…",
@@ -1424,7 +1452,7 @@ public sealed partial class MainViewModel : ObservableObject
     public string EmptyDetail => ListState switch
     {
         "loading" => "",
-        "noaccount" => "Add an account in Settings → Accounts to read and send mail here.",
+        "noaccount" => "Add one to read and send mail here. Your mail stays on this PC.",
         "nofolder" => Scope.IsUnified ? $"None of your accounts has a {SelectedFolder} folder." : $"{ScopeAccountLabel} has no {SelectedFolder} folder on its server.",
         "notsynced" => "Choose the folders to keep in the account's settings, then sync (F5).",
         "nomatch" => $"Nothing in {SelectedFolder} matches “{SearchText.Trim()}”.",
@@ -1439,6 +1467,8 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CountText));
         OnPropertyChanged(nameof(ListState));
         OnPropertyChanged(nameof(ShowListPlaceholder));
+        OnPropertyChanged(nameof(ShowColumnHeader));
+        OnPropertyChanged(nameof(ShowAddAccount));
         OnPropertyChanged(nameof(EmptyTitle));
         OnPropertyChanged(nameof(EmptyDetail));
     }
@@ -1971,7 +2001,9 @@ public sealed partial class MainViewModel : ObservableObject
         List<StoredMessage> found;
         int? indexTotal = null;
         var indexPage = 0;
-        var byAttachment = await AttachmentMatchesAsync(new MailListFilter(AttachmentName: query), cancellationToken).ConfigureAwait(true) ?? new HashSet<MessageKey>();
+        var byAttachment = new HashSet<MessageKey>(await AttachmentMatchesAsync(new MailListFilter(AttachmentName: query), cancellationToken).ConfigureAwait(true) ?? new HashSet<MessageKey>());
+        if (!IsDemo)
+            byAttachment.UnionWith(await AttachmentTextMatchesAsync(query, cancellationToken).ConfigureAwait(true));
         if (IsDemo)
         {
             var terms = Alondra1.Core.Search.SearchText.Terms(query);
@@ -2008,6 +2040,33 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     private const int SearchPageSize = 200;
+
+    /// <summary>Plain-text attachments already on this PC whose text matches (bounded; see <see cref="AttachmentText"/>).</summary>
+    private async Task<IReadOnlyList<MessageKey>> AttachmentTextMatchesAsync(string query, CancellationToken cancellationToken)
+    {
+        var terms = Alondra1.Core.Search.SearchText.Terms(query);
+        if (terms.Length == 0)
+            return [];
+        var found = new List<MessageKey>();
+        var candidates = (await _services.Store.ListDownloadedAttachmentsAsync(AttachmentText.MaxBytes, AttachmentText.MaxFiles * 4, cancellationToken).ConfigureAwait(true))
+            .Where(AttachmentText.IsSearchable).Take(AttachmentText.MaxFiles);
+        foreach (var attachment in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await using var stream = File.OpenRead(_services.Files.Resolve(attachment.CacheRelativePath!));
+                if (await AttachmentText.MatchesAsync(stream, terms, cancellationToken).ConfigureAwait(true))
+                    found.Add(new MessageKey(attachment.AccountId, attachment.FolderId, attachment.Uid));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A file removed or locked since it was listed: skipped, the rest still count.
+            }
+        }
+
+        return found;
+    }
 
     private string AccountLabel(string id) => MailAccounts.FirstOrDefault(a => a.Id == id) is { } a ? ComposeIdentity.Label(a) : id;
 

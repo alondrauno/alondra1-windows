@@ -41,6 +41,18 @@ public static class SampleCatalog
 
     public static IReadOnlyList<string> FolderNames => Folders;
 
+    /// <summary>
+    /// Number of sample accounts (2 by default; up to 15 with --demo-accounts=N for many-account screenshots). Extra
+    /// accounts include a duplicate name, a long name and a non-Latin name; the sample mail is spread across all of them.
+    /// </summary>
+    public static int AccountCount { get; set; } = 2;
+
+    private static readonly string[] ExtraNames =
+    [
+        "Work", "Clients", "Newsletters", "Family", "Университет", "Volunteer coordination group for the spring community events",
+        "Billing", "Side project", "Shared support", "Travel", "Club", "Research", "Archive 2019",
+    ];
+
     public static IReadOnlyList<StoredMessage> Messages()
     {
         var list = new List<StoredMessage>();
@@ -50,14 +62,15 @@ public static class SampleCatalog
             for (var i = 0; i < count; i++)
             {
                 var source = Sources[i];
-                var account = i % 3 == 2 ? "Personal" : "Work";
+                var many = AccountCount > 2 ? Accounts()[i % AccountCount] : null;
+                var account = many?.DisplayName ?? (i % 3 == 2 ? "Personal" : "Work");
                 var time = i < 7
                     ? $"09:{(54 - (i * 7)):00}"
                     : $"Nov {14 - ((i - 7) / 4)}";
                 var body = source.Body ?? $"Hi,\n\nFollowing up on “{source.Subject}.” Let me know if you have any questions.\n\nThanks,\n{source.From}";
                 list.Add(new StoredMessage
                 {
-                    AccountId = account == "Work" ? "demo-work" : "demo-personal",
+                    AccountId = many?.Id ?? (account == "Work" ? "demo-work" : "demo-personal"),
                     AccountName = account,
                     FolderId = Folders[group],
                     Uid = (group * 100) + i,
@@ -143,6 +156,7 @@ public static class SampleCatalog
     [
         DemoAccount("demo-work", "Work", "you@work.example"),
         DemoAccount("demo-personal", "Personal", "you@home.example"),
+        .. Enumerable.Range(2, Math.Clamp(AccountCount, 2, 15) - 2).Select(k => DemoAccount($"demo-{k}", ExtraNames[k - 2], $"you{k}@example{k}.test")),
     ];
 
     private static Alondra1.Core.Config.AccountConfig DemoAccount(string id, string name, string address) => new()

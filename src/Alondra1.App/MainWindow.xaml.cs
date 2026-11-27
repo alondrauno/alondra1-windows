@@ -999,6 +999,8 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void AddAccount_Click(object sender, RoutedEventArgs e) => Dialogs.ShowAccount(this, _model, null);
+
     private void ResetColumns_Click(object sender, RoutedEventArgs e) => _model.ResetColumns();
 
     /// <summary>

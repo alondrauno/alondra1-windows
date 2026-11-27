@@ -38,9 +38,7 @@ public sealed partial class MailNavRow : ObservableObject
     {
         get
         {
-            var words = Node.Label.Split([' ', '.', '@', '_', '-'], StringSplitOptions.RemoveEmptyEntries);
-            var letters = words.Length >= 2 ? $"{words[0][0]}{words[1][0]}" : words.Length == 1 ? words[0][..1] : "?";
-            return letters.ToUpperInvariant();
+            return Alondra1.Core.Mail.ComposeIdentity.Initials(Node.Label);
         }
     }
 

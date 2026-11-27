@@ -555,6 +555,7 @@
                         Click="ClearFilters_Click" AutomationProperties.Name="Clear all filters"/>
               </WrapPanel>
               <Border x:Name="ListColumnHeader" DockPanel.Dock="Top" Height="{StaticResource MailTableHeaderHeight}" Margin="{StaticResource PaneSectionGapTop}"
+                      Visibility="{Binding ShowColumnHeader, Converter={StaticResource BoolVis}}"
                       Background="{DynamicResource SubtleBrush}" CornerRadius="{StaticResource RadiusTip}">
                 <Border.ContextMenu>
                   <ContextMenu>
@@ -713,6 +714,8 @@
                   <TextBlock Text="{Binding EmptyDetail}" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
                   <Button Style="{StaticResource SecondaryButton}" Content="Clear filters" Click="ClearFilters_Click" HorizontalAlignment="Center" Margin="0,12,0,0"
                           Visibility="{Binding HasFilter, Converter={StaticResource BoolVis}}"/>
+                  <Button Style="{StaticResource SecondaryButton}" Content="Add an account" Click="AddAccount_Click" HorizontalAlignment="Center" Margin="0,12,0,0"
+                          Visibility="{Binding ShowAddAccount, Converter={StaticResource BoolVis}}"/>
                 </StackPanel>
               </Grid>
             </DockPanel>

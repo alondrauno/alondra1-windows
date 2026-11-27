@@ -404,6 +404,27 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         }
     }
 
+    public async Task<IReadOnlyList<StoredAttachment>> ListDownloadedAttachmentsAsync(long maxBytes, int limit, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = Require().CreateCommand();
+            command.CommandText = """
+                SELECT id, account_id, folder_id, uid, file_name, content_type, size, cache_path, downloaded, pinned, content_id
+                FROM attachments WHERE downloaded = 1 AND cache_path IS NOT NULL AND size <= $max
+                ORDER BY rowid DESC LIMIT $limit
+                """;
+            command.Parameters.AddWithValue("$max", maxBytes);
+            command.Parameters.AddWithValue("$limit", limit);
+            return await ReadAttachmentsAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private static string EscapeLike(string value) =>
         value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
 

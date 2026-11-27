@@ -33,6 +33,9 @@ public partial class App : Application
         };
         var home = Arguments.FirstOrDefault(argument => argument.StartsWith("--home=", StringComparison.Ordinal))?.Substring("--home=".Length);
         var demo = Arguments.Contains("--demo");
+        if (Arguments.FirstOrDefault(argument => argument.StartsWith("--demo-accounts=", StringComparison.Ordinal)) is { } many
+            && int.TryParse(many["--demo-accounts=".Length..], out var count))
+            Alondra1.Core.Demo.SampleCatalog.AccountCount = Math.Clamp(count, 2, 15);
         if (demo || Arguments.Contains("--perf"))
             home = Path.Combine(Path.GetTempPath(), "alondra1-fixtures", Guid.NewGuid().ToString("N"));
         try

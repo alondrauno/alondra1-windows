@@ -89,4 +89,20 @@ public static class ComposeIdentity
             text = text[(open + 1)..close].Trim();
         return text.Contains('@', StringComparison.Ordinal) ? text : "";
     }
+
+    /// <summary>
+    /// Up to two letters for an avatar or account marker, made on this PC: the first letters of the first two words,
+    /// ignoring a "(address)" suffix and punctuation; "?" when there is no letter or digit.
+    /// </summary>
+    public static string Initials(string? name)
+    {
+        var text = name ?? "";
+        var paren = text.IndexOf(" (", StringComparison.Ordinal);
+        if (paren > 0)
+            text = text[..paren];
+        text = text.Replace("'", "", StringComparison.Ordinal).Replace("’", "", StringComparison.Ordinal);
+        var words = new string(text.Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray()).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var letters = words.Length >= 2 ? $"{words[0][0]}{words[1][0]}" : words.Length == 1 ? words[0][..1] : "?";
+        return letters.ToUpper(System.Globalization.CultureInfo.CurrentCulture);
+    }
 }

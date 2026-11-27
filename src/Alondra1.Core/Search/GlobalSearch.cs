@@ -227,7 +227,8 @@ public sealed class MailSearchSource(
         var headersOnly = unique.Any(m => !m.BodyDownloaded);
         var total = Math.Max(unique.Count, page.Total ?? 0);
         var coverage = accounts.Count == 0 ? "No mail account is set up."
-            : $"Mail kept on this PC in {Plural(accounts.Count, "account")}" + (headersOnly ? "; some messages only by sender and subject (body not downloaded)." : ".");
+            : $"Mail kept on this PC in {Plural(accounts.Count, "account")}" + (headersOnly ? "; some messages only by sender and subject (body not downloaded)." : ".")
+              + " Attachments by name; text only of plain-text files on this PC.";
         if (filters?.Invoke() is { Length: > 0 } active)
             coverage += $" Filtered: {active}.";
         return new SearchGroup(SearchModule.Mail, hits, total, coverage);

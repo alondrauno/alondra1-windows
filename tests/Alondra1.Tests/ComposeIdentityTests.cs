@@ -52,3 +52,16 @@ public class ComposeIdentityTests
         Assert.Equal("x@example.com", ComposeIdentity.Label(new AccountConfig { DisplayName = "", Address = "x@example.com" }));
     }
 }
+
+public class InitialsTests
+{
+    [Theory]
+    [InlineData("Maya Chen", "MC")]
+    [InlineData("Work (you@work.example)", "W")]
+    [InlineData("O'Brien, Liam", "OL")]
+    [InlineData("Ава Петрова", "АП")]
+    [InlineData("you@work.example", "YW")]
+    [InlineData("  ", "?")]
+    public void InitialsComeFromTheNameWithoutPunctuation(string name, string expected) =>
+        Assert.Equal(expected, Alondra1.Core.Mail.ComposeIdentity.Initials(name));
+}
