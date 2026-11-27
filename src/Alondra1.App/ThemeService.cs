@@ -7,6 +7,19 @@ namespace Alondra1.App;
 
 public static class ThemeService
 {
+    /// <summary>Demo snapshots: apply the high-contrast mapping even when Windows is not in a contrast theme.</summary>
+    public static bool ForceHighContrast { get; set; }
+
+    public static bool IsHighContrast => ForceHighContrast || SystemParameters.HighContrast;
+
+    /// <summary>Re-applies the theme when Windows turns a contrast theme on or off.</summary>
+    public static void Watch(Func<AppearanceSettings> appearance) =>
+        SystemParameters.StaticPropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SystemParameters.HighContrast))
+                Application.Current?.Dispatcher.BeginInvoke(() => Apply(appearance()));
+        };
+
     public static void Apply(AppearanceSettings appearance)
     {
         var light = appearance.Theme switch
@@ -41,11 +54,30 @@ public static class ThemeService
             palette["HeaderScrimBrush"] = new SolidColorBrush(scrim);
         }
 
+        if (IsHighContrast)
+            ApplyHighContrast(palette);
         dictionaries[0] = palette;
         // Native title bars of open dialogs follow the new palette too.
         Shell.ShellWindow.ApplyCaptionToAll();
         // The picture's brightness adapts to the theme, so it is re-processed when the theme changes.
         (Application.Current.MainWindow as MainWindow)?.ApplyBackground();
+    }
+
+    private static void ApplyHighContrast(ResourceDictionary palette)
+    {
+        foreach (var (key, role) in Alondra1.Core.Layout.HighContrast.Roles)
+        {
+            var color = role switch
+            {
+                Alondra1.Core.Layout.ContrastRole.Window => SystemColors.WindowColor,
+                Alondra1.Core.Layout.ContrastRole.WindowText => SystemColors.WindowTextColor,
+                Alondra1.Core.Layout.ContrastRole.Highlight => SystemColors.HighlightColor,
+                Alondra1.Core.Layout.ContrastRole.HighlightText => SystemColors.HighlightTextColor,
+                Alondra1.Core.Layout.ContrastRole.HotTrack => SystemColors.HotTrackColor,
+                _ => Colors.Transparent,
+            };
+            palette[key] = new SolidColorBrush(color);
+        }
     }
 
     /// <summary>Panel opacity over a background picture (0xE0 = 88 %).</summary>

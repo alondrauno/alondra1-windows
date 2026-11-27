@@ -296,8 +296,35 @@ public sealed partial class MainViewModel : ObservableObject
         return id is null ? [] : [(account, id)];
     }
 
+    /// <summary>
+    /// The list's group headings: by date (only while sorted by date, so headings never repeat), by account (only in a
+    /// view of several accounts), or none. The window applies it to the list view.
+    /// </summary>
+    public string? GroupProperty =>
+        _services.Config.Appearance.GroupMailByDate && Sort == MailSortField.Date ? nameof(StoredMessage.DateGroup)
+        : _services.Config.Appearance.GroupMailByAccount && Scope.IsUnified ? nameof(StoredMessage.AccountName)
+        : null;
+
+    /// <summary>0 together, 1 by account, 2 by date (Settings in the layout menu).</summary>
+    public int GroupingChoice => _services.Config.Appearance.GroupMailByDate ? 2 : _services.Config.Appearance.GroupMailByAccount ? 1 : 0;
+
+    public void SetGrouping(int choice)
+    {
+        _services.Config.Appearance.GroupMailByDate = choice == 2;
+        _services.Config.Appearance.GroupMailByAccount = choice == 1;
+        if (!IsDemo)
+            SaveConfig();
+        OnPropertyChanged(nameof(GroupProperty));
+        OnPropertyChanged(nameof(GroupingChoice));
+        RefreshColumns();
+    }
+
+    /// <summary>Comfortable density shows the start of each message after its subject; compact keeps one plain line.</summary>
+    public bool ShowSnippets => _services.Config.Appearance.Density == Density.Comfortable;
+
     private void RaiseScope()
     {
+        OnPropertyChanged(nameof(GroupProperty));
         OnPropertyChanged(nameof(Scope));
         OnPropertyChanged(nameof(SelectedFolder));
         OnPropertyChanged(nameof(ScopeAccountLabel));
@@ -367,7 +394,7 @@ public sealed partial class MainViewModel : ObservableObject
         layout.MailSortDescending = desc;
         if (!IsDemo)
             SaveConfig();
-        foreach (var name in new[] { nameof(Sort), nameof(SortDescending), nameof(SortLabel), nameof(FromSortArrow), nameof(SubjectSortArrow), nameof(DateSortArrow) })
+        foreach (var name in new[] { nameof(Sort), nameof(SortDescending), nameof(SortLabel), nameof(FromSortArrow), nameof(SubjectSortArrow), nameof(DateSortArrow), nameof(GroupProperty) })
             OnPropertyChanged(name);
         _ = ReloadMessagesAsync();
     }
@@ -893,7 +920,8 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (_listWidth <= 0)
             return;
-        Columns = MailColumnLayout.Resolve(_listWidth, ColumnPreferences, Scope.IsUnified);
+        // Account headings already name the account: no Account column under them.
+        Columns = MailColumnLayout.Resolve(_listWidth, ColumnPreferences, Scope.IsUnified && GroupProperty != nameof(StoredMessage.AccountName));
         ShowTimeColumn = Columns.ShowReceived;
         ShowAttachmentColumn = Columns.ShowAttachment;
         ShowAccountColumn = Columns.ShowAccount;
@@ -947,6 +975,8 @@ public sealed partial class MainViewModel : ObservableObject
         SaveConfig();
         OnPropertyChanged(nameof(RowHeight));
         OnPropertyChanged(nameof(DensityLabel));
+        OnPropertyChanged(nameof(ShowSnippets));
+        _ = ReloadMessagesAsync();
     }
 
     public void CommitBreadth(string paneId, double breadth)
@@ -1343,6 +1373,8 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var message in found)
         {
             message.TimeLabel = MailColumnLayout.TimeLabel(message.ReceivedUtc, now);
+            message.DateGroup = MailListView.DateGroup(message.ReceivedUtc, now);
+            message.SnippetSuffix = ShowSnippets ? MailListView.Snippet(message.Preview) : "";
             if (names.TryGetValue(message.AccountId, out var name))
                 message.AccountName = name;
         }

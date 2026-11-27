@@ -109,6 +109,8 @@ public sealed class AppearanceSettings
     public Dictionary<string, string> DarkColors { get; set; } = [];
     /// <summary>All-accounts mail view lists each account as its own group (default) or mixes them together.</summary>
     public bool GroupMailByAccount { get; set; } = true;
+    /// <summary>Date headings (Today, Yesterday, Last week…) when the list is sorted by date; wins over account grouping.</summary>
+    public bool GroupMailByDate { get; set; }
     public bool GroupTasksByFolder { get; set; }
     public BackgroundSettings Background { get; set; } = new();
 }

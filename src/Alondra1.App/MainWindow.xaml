@@ -163,6 +163,14 @@
           <Border Margin="0,6,12,12" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                   CornerRadius="{StaticResource RadiusLg}" Width="560" MaxHeight="540" Effect="{StaticResource PopupShadow}">
             <DockPanel>
+              <!-- Sources not searched here, said plainly; the paid cloud archive is a separate, explicit search. -->
+              <DockPanel DockPanel.Dock="Bottom" Margin="14,4,10,10" Visibility="{Binding Search.CoversMail, Converter={StaticResource BoolVis}}">
+                <Button DockPanel.Dock="Right" Style="{StaticResource QuietButton}" Height="28" MinHeight="28" Padding="10,0" FontSize="12"
+                        Content="Search the cloud archive…" Click="SearchArchive_Click"
+                        ToolTip="Search your Alondra1 Cloud Mail Archive for the same words (paid plans; sends the query to Alondra1 Cloud)."/>
+                <TextBlock Text="Not searched here: the cloud archive and your mail servers." FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center"
+                           Foreground="{DynamicResource MutedBrush}"/>
+              </DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,8,6" LastChildFill="True">
                 <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="28" Height="28" Click="CloseSearchResults_Click"
                         AutomationProperties.Name="Close search results" ToolTip="Close search results (Esc)">
@@ -289,10 +297,11 @@
                 <Border Margin="0,0,12,12" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                         CornerRadius="{StaticResource RadiusLg}" Padding="12" Width="280" Effect="{StaticResource PopupShadow}">
                   <StackPanel>
-                    <DockPanel Margin="0,0,0,8" IsEnabled="{Binding IsAllAccounts}">
+                    <DockPanel Margin="0,0,0,8">
                       <TextBlock Text="Group" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
-                      <ComboBox x:Name="MailGrouping" Width="150" HorizontalAlignment="Right" SelectionChanged="MailGrouping_Changed" AutomationProperties.Name="Group messages">
-                        <ComboBoxItem Content="Together"/><ComboBoxItem Content="By account"/>
+                      <ComboBox x:Name="MailGrouping" Width="150" HorizontalAlignment="Right" SelectionChanged="MailGrouping_Changed" AutomationProperties.Name="Group messages"
+                                ToolTip="By account applies in views of several accounts; by date while the list is sorted by date.">
+                        <ComboBoxItem Content="Together"/><ComboBoxItem Content="By account"/><ComboBoxItem Content="By date"/>
                       </ComboBox>
                     </DockPanel>
                     <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,0,0,8"/>
@@ -612,7 +621,8 @@
                   <ListBox.GroupStyle>
                     <GroupStyle>
                       <GroupStyle.HeaderTemplate>
-                        <DataTemplate><TextBlock Text="{Binding Items[0].AccountName}" Padding="8,8,8,4" FontWeight="SemiBold" Foreground="{DynamicResource MutedBrush}"/></DataTemplate>
+                        <DataTemplate><TextBlock Text="{Binding Name}" Padding="8,8,8,4" FontWeight="SemiBold" Foreground="{DynamicResource MutedBrush}"
+                                                 AutomationProperties.HeadingLevel="Level3"/></DataTemplate>
                       </GroupStyle.HeaderTemplate>
                       <!-- No indent for grouped rows, so they keep the same columns as the From / Subject / Received header. -->
                       <GroupStyle.ContainerStyle>
@@ -682,8 +692,11 @@
                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" FontSize="12" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" Margin="6,0,8,0" ToolTip="{Binding AccountName}"
                                    Visibility="{Binding DataContext.ShowAccountColumn, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolVis}}"/>
-                        <TextBlock Grid.Column="3" Text="{Binding SubjectLabel}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="4,0,8,0"
-                                   Style="{StaticResource UnreadText}" ToolTip="{Binding SubjectLabel}"/>
+                        <!-- Comfortable density: the subject, then the start of the message in muted text, on one line. -->
+                        <TextBlock Grid.Column="3" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="4,0,8,0"
+                                   Style="{StaticResource UnreadText}" ToolTip="{Binding SubjectLabel}">
+                          <Run Text="{Binding SubjectLabel, Mode=OneWay}"/><Run Text="{Binding SnippetSuffix, Mode=OneWay}" FontWeight="Normal" Foreground="{DynamicResource MutedBrush}"/>
+                        </TextBlock>
                         <ui:Alondra1Icon Grid.Column="4" Kind="Attachment" IconSize="14" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
                                           ToolTip="Has attachments" Visibility="{Binding HasAttachments, Converter={StaticResource BoolVis}}"/>
                         <TextBlock Grid.Column="5" Text="{Binding TimeLabel}" FontSize="11" Foreground="{DynamicResource MutedBrush}"

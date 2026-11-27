@@ -26,13 +26,14 @@ public static class BackgroundService
     public static bool IsActive(BackgroundSettings settings)
     {
         var s = settings.Normalized();
-        return s.Enabled && s.Image != BackgroundCatalog.None && Source(s) is not null;
+        // High contrast: no picture behind the window (Mail UI spec §9).
+        return !ThemeService.IsHighContrast && s.Enabled && s.Image != BackgroundCatalog.None && Source(s) is not null;
     }
 
     public static void Apply(BackgroundSettings settings, Image image, Rectangle overlay)
     {
         var s = settings.Normalized();
-        var source = s.Enabled ? Source(s) : null;
+        var source = s.Enabled && !ThemeService.IsHighContrast ? Source(s) : null;
         if (source is null)
         {
             image.Source = null;

@@ -109,6 +109,41 @@ public static class MailListView
         }
     }
 
+    /// <summary>
+    /// Date heading for a message (local days; weeks start on the culture's first day): Today, Yesterday, Earlier this
+    /// week, Last week, Earlier this month, Last month, then the month and year ("September 2026").
+    /// </summary>
+    public static string DateGroup(DateTimeOffset received, DateTimeOffset now)
+    {
+        var day = received.ToLocalTime().Date;
+        var today = now.ToLocalTime().Date;
+        if (day >= today)
+            return "Today";
+        if (day == today.AddDays(-1))
+            return "Yesterday";
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        var weekStart = today.AddDays(-(((int)today.DayOfWeek - (int)culture.DateTimeFormat.FirstDayOfWeek + 7) % 7));
+        if (day >= weekStart)
+            return "Earlier this week";
+        if (day >= weekStart.AddDays(-7))
+            return "Last week";
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        if (day >= monthStart)
+            return "Earlier this month";
+        if (day >= monthStart.AddMonths(-1))
+            return "Last month";
+        return day.ToString("MMMM yyyy", culture);
+    }
+
+    /// <summary>" — " and the start of the preview as one plain line (whitespace collapsed), or "" without a preview.</summary>
+    public static string Snippet(string? preview)
+    {
+        if (string.IsNullOrWhiteSpace(preview))
+            return "";
+        var text = string.Join(' ', preview.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return " — " + (text.Length > 160 ? text[..160] : text);
+    }
+
     public static string SortLabel(MailSortField sort, bool descending) => sort switch
     {
         MailSortField.From => descending ? "From (Z to A)" : "From (A to Z)",

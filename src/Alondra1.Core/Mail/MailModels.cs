@@ -50,6 +50,8 @@ public sealed class StoredMessage
     public string? PopUidl { get; set; }
     public string Preview { get; set; } = "";
     public string AccountName { get; set; } = "";
+    /// <summary>The date heading this row falls under when the list is grouped by date ("Today", "Last week"…); set on display.</summary>
+    public string DateGroup { get; set; } = "";
     public string? SendState { get; set; }
 
     public string AccessibilityName
@@ -73,6 +75,9 @@ public sealed class StoredMessage
             ? $"{FromName.Trim()} <{FromAddress.Trim()}>" : SenderLabel;
 
     public string SubjectLabel => string.IsNullOrWhiteSpace(Subject) ? "(no subject)" : Subject;
+
+    /// <summary>" — start of the message" after the subject in comfortable density; set on display, empty otherwise.</summary>
+    public string SnippetSuffix { get; set; } = "";
 
     public string ReceivedFull => MailColumnLayout.FullDate(ReceivedUtc);
 }

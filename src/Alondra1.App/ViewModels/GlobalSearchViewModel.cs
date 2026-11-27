@@ -110,6 +110,9 @@ public sealed partial class GlobalSearchViewModel : ObservableObject
 
     public string Placeholder => SearchScopes.Placeholder(Reach, Module);
 
+    /// <summary>Mail is among the searched modules: the panel names the sources it does not search (cloud archive, servers).</summary>
+    public bool CoversMail => SearchScopes.PanelModules(Reach, Module).Contains(SearchModule.Mail);
+
     /// <summary>The scope chip: what this search covers, always visible next to the box.</summary>
     public string ScopeLabel => Reach switch
     {
@@ -198,6 +201,7 @@ public sealed partial class GlobalSearchViewModel : ObservableObject
         OnPropertyChanged(nameof(Reach));
         OnPropertyChanged(nameof(UsesPanel));
         OnPropertyChanged(nameof(Placeholder));
+        OnPropertyChanged(nameof(CoversMail));
         MailScopeChanged();
     }
 

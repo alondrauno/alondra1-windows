@@ -263,12 +263,12 @@ public static class CloudDialogs
     }
 
     /// <summary>Search the paid cloud archive (local mail search stays free and separate).</summary>
-    public static void ShowArchive(Window? owner, CloudController cloud, string tenantId)
+    public static void ShowArchive(Window? owner, CloudController cloud, string tenantId, string? initialQuery = null)
     {
         var window = Dialogs.Create("Cloud Mail Archive", owner ?? Application.Current.MainWindow, 760, 600);
         var panel = Dialogs.Panel(window);
         var client = new ArchiveClient(cloud.Account!.Api);
-        var query = new TextBox();
+        var query = new TextBox { Text = initialQuery ?? "" };
         panel.Children.Add(Dialogs.Labeled("Search subject, sender and text", query));
         var results = new ListBox { MinHeight = 320 };
         System.Windows.Automation.AutomationProperties.SetName(results, "Archived messages");

@@ -38,8 +38,13 @@ public partial class MainWindow : Window
         model.NavRowsChanged += SelectNavRow;
         ReaderDockBox.ItemsSource = Enum.GetNames<DockEdge>();
         DensityBox.ItemsSource = Enum.GetNames<Density>();
-        MailGrouping.SelectedIndex = model.Config.Appearance.GroupMailByAccount ? 1 : 0;
-        SetGrouping(model.Messages, nameof(StoredMessage.AccountId), model.Config.Appearance.GroupMailByAccount);
+        MailGrouping.SelectedIndex = model.GroupingChoice;
+        SetGrouping(model.Messages, model.GroupProperty);
+        model.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.GroupProperty))
+                SetGrouping(model.Messages, model.GroupProperty);
+        };
         model.ComposeRequested += ShowCompose;
         model.SettingsRequested += () => Dialogs.ShowSettings(this, model);
         Loaded += async (_, _) => await model.Cloud.StartAsync();
@@ -119,12 +124,15 @@ public partial class MainWindow : Window
     /// <summary>Applies Settings → Appearance → Background to the window. Also used for live preview.</summary>
     public void ApplyBackground() => BackgroundService.Apply(_model.Config.Appearance.Background, BackgroundImage, BackgroundOverlay);
 
-    private static void SetGrouping(System.Collections.IEnumerable items, string property, bool enabled)
+    private static void SetGrouping(System.Collections.IEnumerable items, string? property)
     {
         var view = CollectionViewSource.GetDefaultView(items);
+        var current = view.GroupDescriptions.OfType<PropertyGroupDescription>().FirstOrDefault()?.PropertyName;
+        if (current == property)
+            return;
         using var refresh = view.DeferRefresh();
         view.GroupDescriptions.Clear();
-        if (enabled)
+        if (property is not null)
             view.GroupDescriptions.Add(new PropertyGroupDescription(property));
     }
 
@@ -132,10 +140,7 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded || MailGrouping.SelectedIndex < 0)
             return;
-        var enabled = MailGrouping.SelectedIndex == 1;
-        _model.Config.Appearance.GroupMailByAccount = enabled;
-        SetGrouping(_model.Messages, nameof(StoredMessage.AccountId), enabled);
-        _model.ConfigStoreSave();
+        _model.SetGrouping(MailGrouping.SelectedIndex);
     }
 
     private bool _noteSavedForClose;
@@ -333,6 +338,13 @@ public partial class MainWindow : Window
         // --reader-details: the reader with its details expanded.
         if (App.Arguments.Contains("--reader-details"))
             _model.ReaderDetailsOpen = true;
+        // --group=together|account|date and --density=compact|comfortable: list layout for snapshots.
+        if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--group=", StringComparison.Ordinal)) is { } groupArg)
+            _model.SetGrouping(groupArg["--group=".Length..] switch { "account" => 1, "date" => 2, _ => 0 });
+        if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--density=", StringComparison.Ordinal)) is { } densityArg
+            && Enum.TryParse<Density>(densityArg["--density=".Length..], ignoreCase: true, out var forcedDensity))
+            _model.SetDensity(forcedDensity);
+
         // --mail-filter=unread,flagged,attachments: list filters (for snapshots of the filtered and empty-filtered states).
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--mail-filter=", StringComparison.Ordinal)) is { } filterArg)
         {
@@ -988,6 +1000,39 @@ public partial class MainWindow : Window
     }
 
     private void ResetColumns_Click(object sender, RoutedEventArgs e) => _model.ResetColumns();
+
+    /// <summary>
+    /// The cloud archive is searched only when asked, and only when signed in with a plan that includes it; the query
+    /// goes to Alondra1 Cloud then and never for local searches.
+    /// </summary>
+    private async void SearchArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var query = _model.Search.Query.Trim();
+        _model.Search.Close();
+        var cloud = _model.Cloud;
+        try
+        {
+            if (cloud.Account is null || !await cloud.Account.IsSignedInAsync(CancellationToken.None))
+            {
+                Dialogs.Alert(this, "The cloud archive needs an Alondra1 account. Sign in under Settings → Cloud. Local search works without it.", "Cloud Mail Archive");
+                return;
+            }
+
+            var space = await cloud.Account.PersonalSpaceAsync(CancellationToken.None);
+            var rights = await cloud.Account.EntitlementsAsync(space.Id, CancellationToken.None);
+            if (!rights.ArchiveSearch)
+            {
+                Dialogs.Alert(this, "Mail Archive is part of the paid plans. See Settings → Cloud. Local search works without it.", "Cloud Mail Archive");
+                return;
+            }
+
+            Alondra1.App.Cloud.CloudDialogs.ShowArchive(this, cloud, space.Id, query);
+        }
+        catch (Exception ex) when (ex is Alondra1.Core.Cloud.CloudApiException or System.Net.Http.HttpRequestException or TaskCanceledException)
+        {
+            Dialogs.Alert(this, "The cloud archive can't be reached right now. Local results are unaffected.", "Cloud Mail Archive");
+        }
+    }
 
     private void RemoveFilterChip_Click(object sender, RoutedEventArgs e)
     {
