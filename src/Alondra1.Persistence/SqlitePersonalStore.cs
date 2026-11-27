@@ -298,6 +298,44 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         }
     }
 
+    public async Task<IReadOnlyList<MessageKey>> FindByAttachmentNameAsync(string? accountId, string text, CancellationToken cancellationToken)
+    {
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (words.Length == 0)
+            return [];
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = Require().CreateCommand();
+            // Parameterized; LIKE wildcards in the typed text are escaped so they match literally.
+            var sql = new StringBuilder("SELECT DISTINCT account_id, folder_id, uid, file_name FROM attachments WHERE file_name LIKE $first ESCAPE '\\'");
+            command.Parameters.AddWithValue("$first", "%" + EscapeLike(words[0]) + "%");
+            if (!string.IsNullOrEmpty(accountId))
+            {
+                sql.Append(" AND account_id = $account");
+                command.Parameters.AddWithValue("$account", accountId);
+            }
+
+            command.CommandText = sql.ToString();
+            var found = new HashSet<MessageKey>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (Alondra1.Core.Mail.MailListView.Contains(text, reader.GetString(3)))
+                    found.Add(new MessageKey(reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+            }
+
+            return found.ToList();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
+
     public async Task<StoredAttachment?> FindAttachmentAsync(string id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);

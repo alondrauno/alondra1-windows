@@ -42,6 +42,8 @@ public interface IPersonalStore
     Task<IReadOnlyList<Alondra1.Core.Mail.FolderCount>> CountByFolderAsync(CancellationToken cancellationToken);
     Task DeleteAccountDataAsync(string accountId, CancellationToken cancellationToken);
     Task<IReadOnlyList<StoredAttachment>> ListAttachmentsAsync(MessageKey key, CancellationToken cancellationToken);
+    /// <summary>Messages with an attachment whose file name contains every word of <paramref name="text"/> (names only).</summary>
+    Task<IReadOnlyList<MessageKey>> FindByAttachmentNameAsync(string? accountId, string text, CancellationToken cancellationToken);
     Task<StoredAttachment?> FindAttachmentAsync(string id, CancellationToken cancellationToken);
     Task SetAttachmentPinnedAsync(string id, bool pinned, CancellationToken cancellationToken);
     Task<IReadOnlyList<StoredAttachment>> ListUnpinnedAttachmentsAsync(string accountId, CancellationToken cancellationToken);
@@ -192,6 +194,19 @@ public sealed class SessionCache : ISessionCache
             return _bodies.TryGetValue(BodyKey(key), out var body) ? body : null;
     }
 
+    public IReadOnlyList<MessageKey> FindByAttachmentName(string? accountId, string text)
+    {
+        lock (_gate)
+        {
+            return _bodies.Values
+                .SelectMany(body => body.Attachments)
+                .Where(a => (accountId is null || a.AccountId == accountId) && Alondra1.Core.Mail.MailListView.Contains(text, a.FileName))
+                .Select(a => new MessageKey(a.AccountId, a.FolderId, a.Uid))
+                .Distinct()
+                .ToList();
+        }
+    }
+
     public void ClearAccount(string accountId)
     {
         lock (_gate)
@@ -216,4 +231,6 @@ public interface ISessionCache
     void SetBody(MessageKey key, StoredBody body);
     StoredBody? GetBody(MessageKey key);
     void ClearAccount(string accountId);
+    /// <summary>Messages of this session whose downloaded attachment list has a matching file name.</summary>
+    IReadOnlyList<MessageKey> FindByAttachmentName(string? accountId, string text);
 }

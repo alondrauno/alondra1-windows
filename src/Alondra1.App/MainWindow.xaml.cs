@@ -337,7 +337,10 @@ public partial class MainWindow : Window
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--mail-filter=", StringComparison.Ordinal)) is { } filterArg)
         {
             var parts = filterArg["--mail-filter=".Length..].Split(',');
-            _model.SetFilter(new MailListFilter(parts.Contains("unread"), parts.Contains("flagged"), parts.Contains("attachments")));
+            string? Value(string key) => parts.FirstOrDefault(p => p.StartsWith(key + ":", StringComparison.Ordinal))?[(key.Length + 1)..];
+            DateOnly? since = int.TryParse(Value("days"), out var days) ? DateOnly.FromDateTime(DateTime.Today).AddDays(-days) : null;
+            _model.SetFilter(new MailListFilter(parts.Contains("unread"), parts.Contains("flagged"), parts.Contains("attachments"),
+                Sender: Value("from"), Recipient: Value("to"), Subject: Value("subject"), Since: since, AttachmentName: Value("attachment")));
             await Task.Delay(300);
         }
 
@@ -363,6 +366,7 @@ public partial class MainWindow : Window
                 "settings" => () => Dialogs.ShowSettings(this, _model),
                 "background" => () => Dialogs.ShowSettings(this, _model, 1),
                 "mail" => () => Dialogs.ShowSettings(this, _model, 2),
+                "filters" => () => Dialogs.ShowMailFilters(this, _model),
                 "account" => () => Dialogs.ShowAccount(this, _model, null),
                 "welcome" => () => Dialogs.ShowWelcome(this, _model),
                 "conflict" => () => _ = Alondra1.App.Notes.NotesSamples.ShowConflictAsync(this, _model.Notes),
@@ -883,6 +887,28 @@ public partial class MainWindow : Window
             foreach (var account in _model.MailAccounts)
                 Toggle(ComposeIdentity.Label(account), f.AccountId == account.Id, f with { AccountId = account.Id });
         }
+
+        // Received: quick ranges; a range set in More filters shows as its own checked line.
+        menu.Items.Add(new Separator());
+        var received = new MenuItem { Header = "Received" };
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var anyTime = new MenuItem { Header = "Any time", IsCheckable = true, IsChecked = f.Since is null && f.Until is null };
+        anyTime.Click += (_, _) => _model.SetFilter(f with { Since = null, Until = null });
+        received.Items.Add(anyTime);
+        var quick = false;
+        foreach (var (label, from, to) in MailListView.QuickRanges(today))
+        {
+            var on = f.Since == from && f.Until == to;
+            quick |= on;
+            var item = new MenuItem { Header = label, IsCheckable = true, IsChecked = on };
+            item.Click += (_, _) => _model.SetFilter(f with { Since = from, Until = to });
+            received.Items.Add(item);
+        }
+
+        if (!quick && (f.Since is not null || f.Until is not null))
+            received.Items.Add(new MenuItem { Header = MailListView.DateRangeLabel(f.Since, f.Until), IsCheckable = true, IsChecked = true, IsEnabled = false });
+        menu.Items.Add(received);
+        menu.Items.Add(MenuItem("More filters (sender, subject, dates, attachment name)…", () => Dialogs.ShowMailFilters(this, _model)));
 
         menu.Items.Add(new Separator());
         var clear = MenuItem("Clear filters", () => _model.SetFilter(MailListFilter.None));

@@ -404,6 +404,83 @@ public static class Dialogs
         window.ShowDialog();
     }
 
+    // ---------- Mail filters ----------
+
+    /// <summary>
+    /// Advanced Mail filters (Mail UI spec §8.2): sender, recipient, subject, received date range, attachment name,
+    /// unread, flagged, with attachments and (in a view of several accounts) one account. They combine; Clear all
+    /// removes every filter. They apply to the list and to All mail search, over mail kept on this PC.
+    /// </summary>
+    public static void ShowMailFilters(Window owner, MainViewModel model)
+    {
+        var f = model.Filter;
+        var window = Create("Filter messages", owner, 460, sizeToContent: true);
+        var panel = Panel(window);
+        panel.Children.Add(Note("Every filter you fill in must match. Words can be in any order; case doesn't matter."));
+        var sender = Field(f.Sender ?? "");
+        var recipient = Field(f.Recipient ?? "");
+        var subject = Field(f.Subject ?? "");
+        var attachment = Field(f.AttachmentName ?? "");
+        static string Day(DateOnly? d) => d?.ToString("d", System.Globalization.CultureInfo.CurrentCulture) ?? "";
+        var since = Field(Day(f.Since));
+        var until = Field(Day(f.Until));
+        var example = DateOnly.FromDateTime(DateTime.Today).ToString("d", System.Globalization.CultureInfo.CurrentCulture);
+        panel.Children.Add(Row("From", sender));
+        panel.Children.Add(Row("To or Cc", recipient));
+        panel.Children.Add(Row("Subject", subject));
+        panel.Children.Add(Row("Attachment name", attachment));
+        panel.Children.Add(Row("Received from", since));
+        panel.Children.Add(Row("Received until", until));
+        panel.Children.Add(Note($"Dates like {example}. Leave one empty for an open range."));
+        var unread = Check("Unread only", f.Unread);
+        var flagged = Check("Flagged only", f.Flagged);
+        var attachments = Check("With attachments", f.Attachments);
+        panel.Children.Add(unread);
+        panel.Children.Add(flagged);
+        panel.Children.Add(attachments);
+        ComboBox? account = null;
+        var accounts = model.MailAccounts.ToList();
+        if (model.Scope.IsUnified && accounts.Count > 1)
+        {
+            account = new ComboBox
+            {
+                ItemsSource = new[] { "All accounts" }.Concat(accounts.Select(ComposeIdentity.Label)).ToList(),
+                SelectedIndex = f.AccountId is { } id && accounts.FindIndex(a => a.Id == id) is var i and >= 0 ? i + 1 : 0,
+            };
+            var row = (FrameworkElement)Row("Account", account);
+            row.Margin = new Thickness(0, 12, 0, 8);
+            panel.Children.Add(row);
+        }
+
+        var error = new TextBlock { Foreground = (Brush)Application.Current.FindResource("DangerBrush"), TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 8, 0, 0) };
+        panel.Children.Add(error);
+        Hint(window, "Mail kept on this PC", "Filters apply to the message list and to All mail search, over mail kept on this PC. Attachment names are known once a message has been opened or downloaded.");
+        var actions = Footer(window);
+        actions.Children.Add(Button("Clear all", () =>
+        {
+            model.SetFilter(MailListFilter.None);
+            window.Close();
+        }));
+        actions.Children.Add(Cancel(window));
+        actions.Children.Add(Primary("Apply", () =>
+        {
+            if (!MailListView.TryParseDate(since.Text, out var from) || !MailListView.TryParseDate(until.Text, out var to))
+            {
+                error.Text = $"Enter dates like {example}, or leave them empty.";
+                error.Visibility = Visibility.Visible;
+                return;
+            }
+
+            model.SetFilter(new MailListFilter(
+                unread.IsChecked == true, flagged.IsChecked == true, attachments.IsChecked == true,
+                account is { SelectedIndex: > 0 } ? accounts[account.SelectedIndex - 1].Id : account is null ? f.AccountId : null,
+                sender.Text, recipient.Text, subject.Text, from, to, attachment.Text));
+            window.Close();
+        }));
+        window.Loaded += (_, _) => sender.Focus();
+        window.ShowDialog();
+    }
+
     // ---------- Account ----------
 
     public static void ShowAccount(Window owner, MainViewModel model, AccountConfig? existing)

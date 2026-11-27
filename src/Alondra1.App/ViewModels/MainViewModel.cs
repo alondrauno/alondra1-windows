@@ -343,15 +343,19 @@ public sealed partial class MainViewModel : ObservableObject
     public void SetFilter(MailListFilter filter)
     {
         // An account filter only makes sense in a view of several accounts.
+        filter = filter.Normalized();
         if (!Scope.IsUnified && filter.AccountId is not null)
             filter = filter with { AccountId = null };
         Filter = filter;
         FilterChips.Clear();
-        foreach (var chip in MailListView.Chips(filter, id => MailAccounts.FirstOrDefault(a => a.Id == id) is { } a ? ComposeIdentity.Label(a) : id))
+        foreach (var chip in MailListView.Chips(filter, AccountLabel))
             FilterChips.Add(chip);
         OnPropertyChanged(nameof(Filter));
         OnPropertyChanged(nameof(HasFilter));
         _ = ReloadMessagesAsync();
+        // All mail results use the same filters: run them again so the panel never shows results for the old ones.
+        if (Search.IsPanelOpen && Search.Reach == SearchReach.AllMail)
+            Search.SetQuery(Search.Query, now: true);
     }
 
     /// <summary>Sorts by a column; choosing the sorted column again reverses the direction. Remembered on this PC.</summary>
@@ -1243,7 +1247,7 @@ public sealed partial class MainViewModel : ObservableObject
                     list.AddRange(searching ? SampleCatalog.QueryScope(folderId, account.Id, SearchText) : all);
                 }
 
-                found = MailListView.Apply(list, Filter, Sort, SortDescending);
+                found = MailListView.Apply(list, Filter, Sort, SortDescending, await AttachmentMatchesAsync(Filter, CancellationToken.None).ConfigureAwait(true));
             }
             else
             {
@@ -1267,7 +1271,7 @@ public sealed partial class MainViewModel : ObservableObject
                 }
 
                 // One list across accounts, filtered and sorted; ties broken by account, folder and uid so the order is stable.
-                found = MailListView.Apply(list, Filter, Sort, SortDescending);
+                found = MailListView.Apply(list, Filter, Sort, SortDescending, await AttachmentMatchesAsync(Filter, CancellationToken.None).ConfigureAwait(true));
             }
         }
         finally
@@ -1856,7 +1860,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The local adapter of a module for the shared search. Nothing is sent to a server.</summary>
     private ISearchSource CreateSearchSource(SearchModule module) => module switch
     {
-        SearchModule.Mail => new MailSearchSource(SearchAllMailAsync, MailAccounts),
+        SearchModule.Mail => new MailSearchSource(SearchAllMailAsync, MailAccounts, () => MailListView.Describe(Filter, AccountLabel)),
         SearchModule.Todo => new TaskSearchSource(() => Todo.Board),
         SearchModule.Notes => new NoteSearchSource(() => Notes.Board),
         SearchModule.Calendar => new CalendarSearchSource(() => _events, () => _eventsCoverage),
@@ -1864,16 +1868,58 @@ public sealed partial class MainViewModel : ObservableObject
     };
 
     /// <summary>All mail on this PC: the local index plus folders held only for this session.</summary>
+    /// <remarks>
+    /// Matches subject, sender, recipients and downloaded bodies (the index) and attachment file names. The Mail list
+    /// filters (unread, sender, date range…) narrow it too; the result group says which filters applied.
+    /// </remarks>
     private async Task<IReadOnlyList<StoredMessage>> SearchAllMailAsync(string query, CancellationToken cancellationToken)
     {
+        List<StoredMessage> found;
+        var byAttachment = await AttachmentMatchesAsync(new MailListFilter(AttachmentName: query), cancellationToken).ConfigureAwait(true) ?? new HashSet<MessageKey>();
         if (IsDemo)
         {
             var terms = Alondra1.Core.Search.SearchText.Terms(query);
-            return SampleCatalog.Messages().Where(m => Alondra1.Core.Search.SearchText.Matches(terms, m.Subject, m.FromName, m.FromAddress, m.Recipients, m.Preview)).ToList();
+            found = SampleCatalog.Messages().Where(m => Alondra1.Core.Search.SearchText.Matches(terms, m.Subject, m.FromName, m.FromAddress, m.Recipients, m.Preview)
+                || byAttachment.Contains(new MessageKey(m.AccountId, m.FolderId, m.Uid))).ToList();
+        }
+        else
+        {
+            var stored = await _services.Store.SearchAsync(null, null, query, cancellationToken).ConfigureAwait(true);
+            found = [.. stored, .. _services.Cache.Search(null, null, query)];
+            // Attachment names are not in the text index: add those messages from their folders.
+            var have = found.Select(m => new MessageKey(m.AccountId, m.FolderId, m.Uid)).ToHashSet();
+            foreach (var folder in byAttachment.Where(k => !have.Contains(k)).GroupBy(k => (k.AccountId, k.FolderId)))
+            {
+                var uids = folder.Select(k => k.Uid).ToHashSet();
+                var listed = await _services.Store.ListAsync(folder.Key.AccountId, folder.Key.FolderId, cancellationToken).ConfigureAwait(true);
+                found.AddRange(listed.Concat(_services.Cache.List(folder.Key.AccountId, folder.Key.FolderId)).Where(m => uids.Contains(m.Uid)));
+            }
         }
 
-        var stored = await _services.Store.SearchAsync(null, null, query, cancellationToken).ConfigureAwait(true);
-        return [.. stored, .. _services.Cache.Search(null, null, query)];
+        if (!Filter.IsActive)
+            return found;
+        var keys = await AttachmentMatchesAsync(Filter, cancellationToken).ConfigureAwait(true);
+        return found.Where(m => MailListView.Matches(m, Filter, keys)).ToList();
+    }
+
+    private string AccountLabel(string id) => MailAccounts.FirstOrDefault(a => a.Id == id) is { } a ? ComposeIdentity.Label(a) : id;
+
+    /// <summary>Messages with a matching attachment file name (names only, from attachments known on this PC); null without that filter.</summary>
+    private async Task<IReadOnlySet<MessageKey>?> AttachmentMatchesAsync(MailListFilter filter, CancellationToken cancellationToken)
+    {
+        if (!MailListFilter.HasText(filter.AttachmentName))
+            return null;
+        var text = filter.AttachmentName!;
+        if (IsDemo)
+        {
+            return SampleCatalog.Messages().Where(m => m.HasAttachments).SelectMany(m => SampleCatalog.BodyFor(m).Attachments)
+                .Where(a => (filter.AccountId is null || a.AccountId == filter.AccountId) && MailListView.Contains(text, a.FileName))
+                .Select(a => new MessageKey(a.AccountId, a.FolderId, a.Uid)).ToHashSet();
+        }
+
+        var keys = new HashSet<MessageKey>(await _services.Store.FindByAttachmentNameAsync(filter.AccountId, text, cancellationToken).ConfigureAwait(true));
+        keys.UnionWith(_services.Cache.FindByAttachmentName(filter.AccountId, text));
+        return keys;
     }
 
     /// <summary>

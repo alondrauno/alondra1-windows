@@ -188,7 +188,8 @@ public sealed class SearchCoordinator
 /// </summary>
 public sealed class MailSearchSource(
     Func<string, CancellationToken, Task<IReadOnlyList<StoredMessage>>> search,
-    IReadOnlyList<AccountConfig> accounts) : ISearchSource
+    IReadOnlyList<AccountConfig> accounts,
+    Func<string>? filters = null) : ISearchSource
 {
     public SearchModule Module => SearchModule.Mail;
 
@@ -216,6 +217,8 @@ public sealed class MailSearchSource(
         var headersOnly = unique.Any(m => !m.BodyDownloaded);
         var coverage = accounts.Count == 0 ? "No mail account is set up."
             : $"Mail kept on this PC in {Plural(accounts.Count, "account")}" + (headersOnly ? "; some messages only by sender and subject (body not downloaded)." : ".");
+        if (filters?.Invoke() is { Length: > 0 } active)
+            coverage += $" Filtered: {active}.";
         return new SearchGroup(SearchModule.Mail, hits, unique.Count, coverage);
     }
 
