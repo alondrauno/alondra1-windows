@@ -25,6 +25,9 @@ public sealed class NotesBoard(INoteStore store, IClock clock)
     public IReadOnlyList<NoteFolder> Folders => _folders.Values.OrderBy(f => f.Position).ThenBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     public NoteSummary? Find(string id) => _notes.GetValueOrDefault(id);
     public NoteFolder? FindFolder(string id) => _folders.GetValueOrDefault(id);
+
+    /// <summary>The folder's name for display, or "Notes" for notes outside any folder.</summary>
+    public string FolderName(string? id) => id is not null && _folders.TryGetValue(id, out var folder) ? folder.Name : "Notes";
     public DateTimeOffset Now => clock.UtcNow;
 
     public static string NewId() => Guid.NewGuid().ToString("N");

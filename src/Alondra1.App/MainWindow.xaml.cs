@@ -12,6 +12,7 @@ using Alondra1.App.ViewModels;
 using Alondra1.Core.Config;
 using Alondra1.Core.Layout;
 using Alondra1.Core.Mail;
+using Alondra1.Core.Search;
 
 namespace Alondra1.App;
 
@@ -45,6 +46,13 @@ public partial class MainWindow : Window
         model.AccountRequested += account => Dialogs.ShowAccount(this, model, account);
         model.ConnectionChanged += UpdateStatusDot;
         model.Todo.SearchFocusRequested += FocusSearch;
+        model.Search.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(GlobalSearchViewModel.IsPanelOpen) && model.Search.IsPanelOpen)
+                SearchResultsPopup.PlacementTarget = model.CompactSearch ? SearchToggle : SearchArea;
+        };
+        Deactivated += (_, _) => model.Search.Close();
+        LocationChanged += (_, _) => model.Search.Close();
         model.Todo.PropertyChanged += Todo_PropertyChanged;
         ApplyBackground();
         ReaderBody.HtmlFailed += reason => _model.ReportHtmlFailure(reason);
@@ -314,7 +322,9 @@ public partial class MainWindow : Window
         // --day=<n>: the Calendar with that day of the shown month selected (its events and Meeting notes).
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--day=", StringComparison.Ordinal)) is { } day && int.TryParse(day["--day=".Length..], out var dayNumber))
             _model.SelectDay(_model.Days.FirstOrDefault(d => d.IsDay && d.Day == dayNumber));
-        // --search=<text>: the search state (for example no results).
+        // --search-scope=Module|AllMail|All: the reach of the header search; --search=<text>: the search state.
+        if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--search-scope=", StringComparison.Ordinal)) is { } reach)
+            _model.Search.Choose(SearchScopes.ParseReach(reach["--search-scope=".Length..]));
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--search=", StringComparison.Ordinal)) is { } search)
             SearchBox.Text = search["--search=".Length..];
         if (App.Arguments.FirstOrDefault(argument => argument.StartsWith("--select=", StringComparison.Ordinal)) is { } select)
@@ -357,6 +367,9 @@ public partial class MainWindow : Window
                 overlays.Add((noteSurface, notePicture));
             Trace("Shell.Snapshot.RenderElement((");
             Shell.Snapshot.RenderElement((FrameworkElement)Content, path, overlays);
+            // The search results are a popup (its own window): written next to the snapshot as <name>.search.png.
+            if (SearchResultsPopup.IsOpen && SearchResultsPopup.Child is FrameworkElement results)
+                Shell.Snapshot.RenderElement(results, Path.ChangeExtension(path, ".search.png"));
             var geometry = Shell.GeometryCheck.Run(new Shell.GeometryCheck.Parts(this, Header, Toolbar, ContentArea,
                 _model.IsMail && Dock.Single == Alondra1.Core.Layout.SinglePane.None ? ListPane : null, _model.IsMail && Dock.Single == Alondra1.Core.Layout.SinglePane.None ? ReaderPane : null,
                 _model.IsMail && Dock.Single != Alondra1.Core.Layout.SinglePane.Reader ? ListColumnHeader : null, _model.IsMail ? MessageList : null));
@@ -460,6 +473,13 @@ public partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => RouteSearch(SearchBox.Text, from: SearchBox);
 
+    private void SearchBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        // Coming back to the box shows the last results again (after opening one, or after Esc).
+        if (_model.Search.UsesPanel && _model.Search.Rows.Count > 0 && _model.Search.Query == ((TextBox)sender).Text)
+            _model.Search.IsPanelOpen = true;
+    }
+
     private void CompactSearchBox_TextChanged(object sender, TextChangedEventArgs e) => RouteSearch(CompactSearchBox.Text, from: CompactSearchBox);
 
     /// <summary>Sends the query to the module that owns it: mail search, task search, or contact filtering.</summary>
@@ -472,6 +492,21 @@ public partial class MainWindow : Window
         if (other.Text != text)
             other.Text = text;
         _syncingSearch = false;
+        if (_model.Search.UsesPanel)
+        {
+            // Results panel (All, All mail, Calendar): the module itself is never filtered behind the user's back.
+            ClearModuleFilter();
+            _model.Search.SetQuery(text);
+        }
+        else
+        {
+            _model.Search.SetQuery(text);
+            FilterModule(text);
+        }
+    }
+
+    private void FilterModule(string text)
+    {
         if (_model.IsMail)
         {
             _model.ApplySearch(text);
@@ -485,12 +520,125 @@ public partial class MainWindow : Window
             _model.ApplyContactQuery(text);
     }
 
+    private void ClearModuleFilter()
+    {
+        if (!string.IsNullOrEmpty(_model.ModuleSearchText))
+            FilterModule("");
+    }
+
     private void SyncSearchBox()
     {
         _syncingSearch = true;
-        SearchBox.Text = _model.ModuleSearchText;
-        CompactSearchBox.Text = _model.ModuleSearchText;
+        var text = _model.Search.UsesPanel ? _model.Search.Query : _model.ModuleSearchText;
+        SearchBox.Text = text;
+        CompactSearchBox.Text = text;
         _syncingSearch = false;
+    }
+
+    /// <summary>The scope menu: this folder or module, all mail (in Mail), or all of Alondra1. The choice is remembered.</summary>
+    private void SearchScope_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } button)
+            return;
+        menu.Items.Clear();
+        var search = _model.Search;
+        void Add(string header, SearchReach reach)
+        {
+            var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = search.Reach == reach };
+            item.Click += (_, _) => ChangeSearchReach(reach);
+            menu.Items.Add(item);
+        }
+
+        Add(_model.IsMail ? $"This folder: {_model.ScopeTitle}" : $"Only {SearchScopes.ModuleName(search.Module)}", SearchReach.Module);
+        if (_model.IsMail)
+            Add("All mail (every account and folder on this PC)", SearchReach.AllMail);
+        Add("All of Alondra1 (Mail, Calendar, To-do, Notes, Contacts)", SearchReach.All);
+        menu.PlacementTarget = button;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private void ChangeSearchReach(SearchReach reach)
+    {
+        var text = SearchBox.Text;
+        if (reach != SearchReach.Module)
+            ClearModuleFilter();
+        _model.Search.Choose(reach);
+        if (_model.Search.UsesPanel)
+            _model.Search.SetQuery(text, now: true);
+        else
+            FilterModule(text);
+        FocusSearch();
+    }
+
+    private void SearchResultsPopup_Closed(object? sender, EventArgs e) => _model.Search.Close();
+
+    private void CloseSearchResults_Click(object sender, RoutedEventArgs e)
+    {
+        _model.Search.Close();
+        SearchBox.Focus();
+    }
+
+    private void SearchResults_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && SearchResultsList.SelectedItem is SearchRow { Hit: not null } row)
+        {
+            _ = OpenSearchResultAsync(row);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            _model.Search.Close();
+            SearchBox.Focus();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Up && SearchResultsList.Items.Cast<SearchRow>().FirstOrDefault(r => !r.IsHeading) == SearchResultsList.SelectedItem)
+        {
+            SearchBox.Focus();
+            e.Handled = true;
+        }
+    }
+
+    private void SearchResults_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == MouseButton.Left && SearchResultsList.SelectedItem is SearchRow { Hit: not null } row)
+            _ = OpenSearchResultAsync(row);
+    }
+
+    /// <summary>Opens a result in its module. The query stays in the box, so the results come back on focus.</summary>
+    private async Task OpenSearchResultAsync(SearchRow row)
+    {
+        var hit = row.Hit!;
+        if (!await _model.OpenSearchHitAsync(hit))
+        {
+            _model.Search.Status = $"“{hit.Title}” is no longer available on this PC (deleted, moved, or its account was removed).";
+            return;
+        }
+
+        _model.Search.Close();
+        FillSelectors();
+        if (hit.Module == SearchModule.Mail && _model.SelectedMessage is { } message)
+        {
+            MessageList.SelectedItem = message;
+            MessageList.ScrollIntoView(message);
+            MessageList.Focus();
+        }
+    }
+
+    private void FocusFirstSearchResult()
+    {
+        if (!_model.Search.IsPanelOpen || SearchResultsList.Items.Cast<SearchRow>().FirstOrDefault(r => !r.IsHeading) is not { } first)
+            return;
+        SearchResultsList.SelectedItem = first;
+        SearchResultsList.UpdateLayout();
+        (SearchResultsList.ItemContainerGenerator.ContainerFromItem(first) as ListBoxItem)?.Focus();
+    }
+
+    private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // A click outside the search area closes the results (the popup's own clicks never reach the window).
+        if (_model.Search.IsPanelOpen && e.OriginalSource is DependencyObject source && !SearchArea.IsAncestorOf(source) && !SearchToggle.IsAncestorOf(source))
+            _model.Search.Close();
     }
 
     private void Todo_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -520,10 +668,28 @@ public partial class MainWindow : Window
 
     private void SearchBox_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Escape || sender is not TextBox box)
+        if (sender is not TextBox box)
+            return;
+        if (e.Key == Key.Enter && _model.Search.UsesPanel)
+        {
+            _model.Search.SetQuery(box.Text, now: true);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Down && _model.Search.IsPanelOpen)
+        {
+            FocusFirstSearchResult();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key != Key.Escape)
             return;
         e.Handled = true;
-        if (box.Text.Length > 0)
+        if (_model.Search.IsPanelOpen)
+            _model.Search.Close();
+        else if (box.Text.Length > 0)
             box.Clear();
         else
         {
@@ -991,6 +1157,14 @@ public partial class MainWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Ctrl+K: the shared search, from any module (Ctrl+E / Ctrl+F keep searching the module too).
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.K)
+        {
+            FocusSearch();
+            e.Handled = true;
+            return;
+        }
+
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key >= Key.D1 && e.Key < Key.D1 + _model.Workspaces.Count)
         {
             OpenWorkspace(_model.Workspaces[e.Key - Key.D1].Name);

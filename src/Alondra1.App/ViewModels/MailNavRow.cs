@@ -39,7 +39,7 @@ public sealed partial class MailNavRow : ObservableObject
         get
         {
             var words = Node.Label.Split([' ', '.', '@', '_', '-'], StringSplitOptions.RemoveEmptyEntries);
-            var letters = words.Length >= 2 ? $"{words[0][0]}{words[1][0]}" : words.Length == 1 ? words[0][..Math.Min(2, words[0].Length)] : "?";
+            var letters = words.Length >= 2 ? $"{words[0][0]}{words[1][0]}" : words.Length == 1 ? words[0][..1] : "?";
             return letters.ToUpperInvariant();
         }
     }

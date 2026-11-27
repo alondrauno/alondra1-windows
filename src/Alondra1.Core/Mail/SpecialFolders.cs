@@ -59,6 +59,29 @@ public static class SpecialFolders
         return role == FolderRole.Inbox ? map.Known.FirstOrDefault(f => f.SpecialUse == "inbox")?.Id ?? "INBOX" : null;
     }
 
+    /// <summary>The standard role of a folder id of this account, or <see cref="FolderRole.Other"/>.</summary>
+    public static FolderRole RoleOf(AccountConfig account, string folderId)
+    {
+        foreach (var role in new[] { FolderRole.Inbox, FolderRole.Sent, FolderRole.Drafts, FolderRole.Archive, FolderRole.Trash, FolderRole.Junk })
+        {
+            if (string.Equals(TryResolve(account, role), folderId, StringComparison.Ordinal))
+                return role;
+        }
+
+        return FolderRole.Other;
+    }
+
+    /// <summary>A folder's name for display: the role name of a standard folder, else the server's leaf name.</summary>
+    public static string LabelOf(AccountConfig account, string folderId)
+    {
+        var role = RoleOf(account, folderId);
+        if (role != FolderRole.Other)
+            return MailScope.RoleLabel(role);
+        if (account.Folders.Known.FirstOrDefault(f => f.Id == folderId) is { } known && !string.IsNullOrWhiteSpace(known.Name))
+            return known.Name;
+        return folderId;
+    }
+
     /// <summary>
     /// Records the real ids from a sync's folder list: a special-use flag wins, then a folder whose display name matches.
     /// Returns true when the account changed (the caller saves the configuration).

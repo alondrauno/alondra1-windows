@@ -8,6 +8,7 @@ using Alondra1.Core.Demo;
 using Alondra1.Core.Layout;
 using Alondra1.Core.Mail;
 using Alondra1.Core.Organizer;
+using Alondra1.Core.Search;
 using Alondra1.Core.Sync;
 using Alondra1.Persistence;
 
@@ -19,6 +20,8 @@ public sealed partial class MainViewModel : ObservableObject
     private List<CalendarEntry> _events = [];
     private List<NoteEntry> _notes = [];
     private List<ContactEntry> _contacts = [];
+    private string _eventsCoverage = "Calendar events aren't loaded on this PC yet. Open Calendar to load them, then search again.";
+    private string _contactsCoverage = "Contacts aren't loaded on this PC yet. Open Contacts to load them, then search again.";
     private DateTime _month = new(2026, 11, 1);
     private int _chosenDay = 15;
 
@@ -28,7 +31,7 @@ public sealed partial class MainViewModel : ObservableObject
         Workspaces =
         [
             new WorkspaceChoice("Mail", "\uE715", false, "Mail", "Search mail"),
-            new WorkspaceChoice("Calendar", "\uE787", false, "Calendar", null),
+            new WorkspaceChoice("Calendar", "\uE787", false, "Calendar", "Search calendar"),
             new WorkspaceChoice("To-do", "\uE9D5", false, "Todo", "Search tasks"),
             new WorkspaceChoice("Notes", "\uE70B", false, "Notes", "Search notes"),
             new WorkspaceChoice("Contacts", "\uE77B", false, "Contacts", "Search contacts"),
@@ -60,7 +63,23 @@ public sealed partial class MainViewModel : ObservableObject
         Cloud = new Alondra1.App.Cloud.CloudController(services);
         Todo = new Alondra1.App.Tasks.TodoViewModel(services, this);
         Notes = new Alondra1.App.Notes.NotesViewModel(services, this);
+        Search = new GlobalSearchViewModel(CreateSearchSource, () => ScopeTitle,
+            SearchScopes.ParseReach(services.Config.Layout.SearchReach), reach =>
+            {
+                if (IsDemo)
+                    return;
+                _services.Config.Layout.SearchReach = reach.ToString();
+                SaveConfig();
+            });
+        Search.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(GlobalSearchViewModel.Placeholder))
+                OnPropertyChanged(nameof(SearchPlaceholder));
+        };
     }
+
+    /// <summary>The shared header search (Mail UI spec §8).</summary>
+    public GlobalSearchViewModel Search { get; }
 
     public ObservableCollection<WorkspaceChoice> Workspaces { get; }
     public ObservableCollection<string> AccountChoices { get; } = [];
@@ -171,6 +190,12 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Selects what Mail shows; an account or folder that no longer exists falls back to the unified Inbox, visibly.</summary>
     public void SetScope(MailScope? scope)
     {
+        ApplyScope(scope);
+        _ = ReloadMessagesAsync();
+    }
+
+    private void ApplyScope(MailScope? scope)
+    {
         scope ??= MailScope.UnifiedInbox;
         if (!scope.IsUnified && MailAccounts.All(a => a.Id != scope.AccountId))
             scope = MailScope.UnifiedInbox;
@@ -184,7 +209,6 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var row in NavRows)
             row.IsSelected = row.Scope == Scope;
         RaiseScope();
-        _ = ReloadMessagesAsync();
     }
 
     /// <summary>A standard folder in the current account part of the scope (keyboard shortcuts Ctrl+Shift+1…6).</summary>
@@ -266,6 +290,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ScopeTitle));
         OnPropertyChanged(nameof(IsAllAccounts));
         NewMailCommand.NotifyCanExecuteChanged();
+        Search?.MailScopeChanged();
     }
     public bool FoldersHidden => FoldersDock == DockEdge.Hidden;
     public string SidebarToggleLabel => FoldersHidden ? "Show accounts and folders" : "Hide accounts and folders";
@@ -492,9 +517,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     public WorkspaceChoice CurrentWorkspace => Workspaces.First(item => item.IsSelected || item.Name == WorkspaceName);
 
-    /// <summary>Calendar has no search function yet, so the header search is hidden there.</summary>
-    public bool HasSearch => CurrentWorkspace.SearchPlaceholder is not null;
-    public string SearchPlaceholder => CurrentWorkspace.SearchPlaceholder ?? "";
+    /// <summary>Every module has the header search (Calendar shows its results in the results panel).</summary>
+    public bool HasSearch => true;
+    public string SearchPlaceholder => Search.Placeholder;
 
     /// <summary>The query the header search box should show for the current module.</summary>
     public string ModuleSearchText => IsMail ? SearchText : IsTasks ? Todo.SearchText : IsNotes ? Notes.SearchText : IsContacts ? ContactQuery : "";
@@ -624,6 +649,7 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var workspace in Workspaces)
             workspace.IsSelected = workspace.Name == name;
         SetShellWidth(_shellWidth);
+        Search?.SetModule(SearchScopes.FromWorkspace(name) ?? SearchModule.Mail);
         RaiseChrome();
         if (!IsDemo && !IsMail && !IsTasks && !IsNotes)
             _ = LoadOrganizerAsync();
@@ -1214,6 +1240,8 @@ public sealed partial class MainViewModel : ObservableObject
                 Tasks.Add(new TaskRow(task));
             _notes = SampleCatalog.Notes().ToList();
             _contacts = SampleCatalog.Contacts().ToList();
+            _eventsCoverage = "Sample events.";
+            _contactsCoverage = "Sample contacts.";
             OrganizerNotice = "Sample data · Work";
         }
         else
@@ -1259,6 +1287,7 @@ public sealed partial class MainViewModel : ObservableObject
                 {
                     var start = new DateTimeOffset(_month.Year, _month.Month, 1, 0, 0, 0, TimeSpan.Zero);
                     _events = (await _services.Organizer.ListEventsAsync(account, secrets, start, start.AddMonths(1), CancellationToken.None).ConfigureAwait(true)).ToList();
+                    _eventsCoverage = $"Events of {start:MMMM yyyy} loaded on this PC ({account.DisplayName}). Open other months in Calendar to search them.";
                     BuildCalendar();
                 }
             }
@@ -1293,7 +1322,11 @@ public sealed partial class MainViewModel : ObservableObject
                 var status = await _services.Organizer.GetStatusAsync(account, secrets, OrganizerFeature.Contacts, CancellationToken.None).ConfigureAwait(true);
                 OrganizerNotice = status.Reason ?? status.AccountName;
                 if (status.Available)
+                {
                     _contacts = (await _services.Organizer.ListContactsAsync(account, secrets, CancellationToken.None).ConfigureAwait(true)).ToList();
+                    _contactsCoverage = $"Contacts loaded on this PC from {account.DisplayName}.";
+                }
+
                 RebuildContacts();
             }
         }
@@ -1545,6 +1578,77 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public event Action<StoredMessage>? MessageOpened;
+
+    // ---------- Shared search: module adapters and opening results ----------
+
+    /// <summary>The local adapter of a module for the shared search. Nothing is sent to a server.</summary>
+    private ISearchSource CreateSearchSource(SearchModule module) => module switch
+    {
+        SearchModule.Mail => new MailSearchSource(SearchAllMailAsync, MailAccounts),
+        SearchModule.Todo => new TaskSearchSource(() => Todo.Board),
+        SearchModule.Notes => new NoteSearchSource(() => Notes.Board),
+        SearchModule.Calendar => new CalendarSearchSource(() => _events, () => _eventsCoverage),
+        _ => new ContactSearchSource(() => _contacts, () => _contactsCoverage),
+    };
+
+    /// <summary>All mail on this PC: the local index plus folders held only for this session.</summary>
+    private async Task<IReadOnlyList<StoredMessage>> SearchAllMailAsync(string query, CancellationToken cancellationToken)
+    {
+        if (IsDemo)
+        {
+            var terms = Alondra1.Core.Search.SearchText.Terms(query);
+            return SampleCatalog.Messages().Where(m => Alondra1.Core.Search.SearchText.Matches(terms, m.Subject, m.FromName, m.FromAddress, m.Recipients, m.Preview)).ToList();
+        }
+
+        var stored = await _services.Store.SearchAsync(null, null, query, cancellationToken).ConfigureAwait(true);
+        return [.. stored, .. _services.Cache.Search(null, null, query)];
+    }
+
+    /// <summary>
+    /// Opens a search result in its own module with its identity (Mail: account and folder, then the message). Opening
+    /// never changes, sends or downloads anything; a result that is gone says so.
+    /// </summary>
+    public async Task<bool> OpenSearchHitAsync(SearchHit hit)
+    {
+        switch (hit.Module)
+        {
+            case SearchModule.Mail:
+                if (MailAccounts.FirstOrDefault(a => a.Id == hit.AccountId) is not { } account || hit.FolderId is null)
+                    return false;
+                var role = SpecialFolders.RoleOf(account, hit.FolderId);
+                SelectWorkspace("Mail");
+                SearchText = "";
+                ApplyScope(role == FolderRole.Other ? new MailScope(account.Id, FolderRole.Other, hit.FolderId) : new MailScope(account.Id, role));
+                await ReloadMessagesAsync().ConfigureAwait(true);
+                var found = Messages.FirstOrDefault(m => m.AccountId == hit.AccountId && m.FolderId == hit.FolderId && m.Uid == hit.Uid);
+                if (found is null)
+                    return false;
+                SelectMessage(found);
+                MessageOpened?.Invoke(found);
+                return true;
+            case SearchModule.Todo:
+                if (Todo.Board?.FindTask(hit.ObjectId) is null)
+                    return false;
+                Todo.OpenTask(hit.ObjectId);
+                return true;
+            case SearchModule.Notes:
+                if (Notes.Board?.Find(hit.ObjectId) is null)
+                    return false;
+                SelectWorkspace("Notes");
+                await Notes.OpenAsync(hit.ObjectId).ConfigureAwait(true);
+                return true;
+            case SearchModule.Calendar:
+                if (_events.FirstOrDefault(e => e.Id == hit.ObjectId) is not { } ev)
+                    return false;
+                OpenCalendarAt(ev.Start.ToLocalTime());
+                return true;
+            default:
+                if (_contacts.FirstOrDefault(c => c.Id == hit.ObjectId && c.AccountId == hit.AccountId) is not { } contact)
+                    return false;
+                OpenContact(string.IsNullOrWhiteSpace(contact.Email) ? contact.Name : contact.Email);
+                return true;
+        }
+    }
 
     /// <summary>Creates a note from the selected email (text, and pictures when asked). Only on the user's request.</summary>
     public async Task CreateNoteFromMailAsync(bool withPictures)

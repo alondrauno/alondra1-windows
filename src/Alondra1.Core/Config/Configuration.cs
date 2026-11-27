@@ -289,6 +289,9 @@ public sealed class LayoutSettings
 
     /// <summary>Collapsed rows of the Mail sidebar (scope keys, "unified" for All accounts); everything starts expanded.</summary>
     public List<string> CollapsedNav { get; set; } = [];
+
+    /// <summary>The header search reach chosen by the user (Module, AllMail or All); an explicit All stays when modules change.</summary>
+    public string? SearchReach { get; set; }
 }
 
 public sealed class OAuthClientSettings
