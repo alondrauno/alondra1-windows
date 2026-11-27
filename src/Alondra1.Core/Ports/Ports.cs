@@ -33,6 +33,10 @@ public interface IPersonalStore
     Task CommitAsync(PersonalBatch batch, CancellationToken cancellationToken);
     Task<IReadOnlyList<StoredMessage>> ListAsync(string? accountId, string folderId, CancellationToken cancellationToken);
     Task<IReadOnlyList<StoredMessage>> SearchAsync(string? accountId, string? folderId, string query, CancellationToken cancellationToken);
+    /// <summary>The newest <paramref name="limit"/> messages across several folders (the first rows of a large list).</summary>
+    Task<IReadOnlyList<StoredMessage>> ListPageAsync(IReadOnlyList<(string AccountId, string FolderId)> folders, int limit, CancellationToken cancellationToken);
+    /// <summary>The newest <paramref name="limit"/> matches and the number of all matches (a first page of search results).</summary>
+    Task<(IReadOnlyList<StoredMessage> Page, int Total)> SearchPageAsync(string? accountId, string? folderId, string query, int limit, CancellationToken cancellationToken);
     Task<StoredBody?> GetBodyAsync(MessageKey key, CancellationToken cancellationToken);
     Task<string?> GetCheckpointAsync(string accountId, string scope, CancellationToken cancellationToken);
     Task<IReadOnlyList<QueuedOperation>> ListOperationsAsync(string? accountId, CancellationToken cancellationToken);

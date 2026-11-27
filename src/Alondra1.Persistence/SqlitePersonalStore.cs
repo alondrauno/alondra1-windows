@@ -108,6 +108,77 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         }
     }
 
+    public async Task<IReadOnlyList<StoredMessage>> ListPageAsync(IReadOnlyList<(string AccountId, string FolderId)> folders, int limit, CancellationToken cancellationToken)
+    {
+        if (folders.Count == 0 || limit <= 0)
+            return [];
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = Require().CreateCommand();
+            var sql = new StringBuilder("SELECT * FROM messages WHERE ");
+            for (var i = 0; i < folders.Count; i++)
+            {
+                sql.Append(i == 0 ? "" : " OR ").Append($"(account_id = $a{i} AND folder_id = $f{i})");
+                command.Parameters.AddWithValue($"$a{i}", folders[i].AccountId);
+                command.Parameters.AddWithValue($"$f{i}", folders[i].FolderId);
+            }
+
+            sql.Append(" ORDER BY received_utc DESC, account_id, folder_id, uid DESC LIMIT $limit");
+            command.Parameters.AddWithValue("$limit", limit);
+            command.CommandText = sql.ToString();
+            return await ReadMessagesAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<(IReadOnlyList<StoredMessage> Page, int Total)> SearchPageAsync(string? accountId, string? folderId, string query, int limit, CancellationToken cancellationToken)
+    {
+        var match = BuildFtsMatch(query);
+        if (match is null)
+            return ([], 0);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var connection = Require();
+            var where = new StringBuilder(" WHERE messages_fts MATCH $match");
+            if (!string.IsNullOrEmpty(accountId))
+                where.Append(" AND k.account_id = $account");
+            if (!string.IsNullOrEmpty(folderId))
+                where.Append(" AND k.folder_id = $folder");
+            void Bind(SqliteCommand command)
+            {
+                command.Parameters.AddWithValue("$match", match);
+                if (!string.IsNullOrEmpty(accountId))
+                    command.Parameters.AddWithValue("$account", accountId);
+                if (!string.IsNullOrEmpty(folderId))
+                    command.Parameters.AddWithValue("$folder", folderId);
+            }
+
+            await using var count = connection.CreateCommand();
+            count.CommandText = "SELECT count(*) FROM messages_fts INNER JOIN search_keys k ON k.id = messages_fts.rowid" + where;
+            Bind(count);
+            var total = Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+
+            await using var page = connection.CreateCommand();
+            page.CommandText = """
+                SELECT m.* FROM messages_fts
+                INNER JOIN search_keys k ON k.id = messages_fts.rowid
+                INNER JOIN messages m ON m.account_id = k.account_id AND m.folder_id = k.folder_id AND m.uid = k.uid
+                """ + where + " ORDER BY m.received_utc DESC, m.account_id, m.folder_id, m.uid DESC LIMIT $limit";
+            Bind(page);
+            page.Parameters.AddWithValue("$limit", limit);
+            return (await ReadMessagesAsync(page, cancellationToken).ConfigureAwait(false), total);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<StoredBody?> GetBodyAsync(MessageKey key, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);

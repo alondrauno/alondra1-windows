@@ -119,3 +119,65 @@ public sealed class AccountSyncBoard
         return string.Join(" · ", parts);
     }
 }
+
+/// <summary>
+/// Runs provider sync for several accounts independently (Mail UI spec §7.2): at most <c>concurrency</c> at a time,
+/// each with its own time limit, so a slow, hung or failing provider never blocks the others. A thrown exception
+/// becomes that account's failed report (type only: no server text, address or token reaches the status).
+/// </summary>
+public static class AccountSyncScheduler
+{
+    public static async Task RunAsync<TAccount>(
+        IReadOnlyList<TAccount> accounts,
+        int concurrency,
+        TimeSpan timeout,
+        Func<TAccount, CancellationToken, Task<SyncReport>> sync,
+        Func<TAccount, SyncReport, Task> finished,
+        CancellationToken cancellationToken = default)
+    {
+        using var slots = new SemaphoreSlim(Math.Max(1, concurrency));
+        async Task One(TAccount account)
+        {
+            await slots.WaitAsync(cancellationToken).ConfigureAwait(true);
+            SyncReport report;
+            try
+            {
+                using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                limit.CancelAfter(timeout);
+                var work = sync(account, limit.Token);
+                var winner = await Task.WhenAny(work, Task.Delay(Timeout.InfiniteTimeSpan, limit.Token)).ConfigureAwait(true);
+                if (winner == work)
+                    report = await work.ConfigureAwait(true);
+                else
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    // The provider did not answer in time; observe its task later so it can't fault unobserved.
+                    _ = work.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+                    report = SyncReport.Failed($"the server did not answer within {Minutes(timeout)}.", offline: false);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                report = SyncReport.Failed($"the server did not answer within {Minutes(timeout)}.");
+            }
+            catch (Exception ex)
+            {
+                report = SyncReport.Failed($"unexpected error ({ex.GetType().Name}).");
+            }
+            finally
+            {
+                slots.Release();
+            }
+
+            await finished(account, report).ConfigureAwait(true);
+        }
+
+        await Task.WhenAll(accounts.Select(One)).ConfigureAwait(true);
+    }
+
+    private static string Minutes(TimeSpan t) => t.TotalMinutes >= 1 ? $"{(int)t.TotalMinutes} min" : $"{(int)t.TotalSeconds} s";
+}

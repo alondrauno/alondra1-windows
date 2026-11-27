@@ -85,7 +85,7 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<WorkspaceChoice> Workspaces { get; }
     public ObservableCollection<string> AccountChoices { get; } = [];
     public ObservableCollection<string> Folders { get; } = [];
-    public ObservableCollection<StoredMessage> Messages { get; } = [];
+    public BulkObservableCollection<StoredMessage> Messages { get; } = [];
     public ObservableCollection<CalendarDay> Days { get; } = [];
     public ObservableCollection<TaskRow> Tasks { get; } = [];
     public ObservableCollection<string> NoteTitles { get; } = [];
@@ -828,6 +828,13 @@ public sealed partial class MainViewModel : ObservableObject
         // Selecting the message that is already open (the list echoing a selection) keeps its body, format, and images.
         if (message is not null && ReferenceEquals(message, SelectedMessage) && _body is not null)
             return;
+        // The same message re-read by a reload (sync, filter, first page then full list): keep its body, format and images.
+        if (message is not null && SelectedMessage is { } open && _body is not null
+            && open.AccountId == message.AccountId && open.FolderId == message.FolderId && open.Uid == message.Uid)
+        {
+            SelectedMessage = message;
+            return;
+        }
         SelectedMessage = message;
         // A new message starts in the default format with remote images blocked (unless allowed by settings).
         _htmlChoice = null;
@@ -1000,48 +1007,64 @@ public sealed partial class MainViewModel : ObservableObject
     /// Syncs the accounts side by side (bounded). Each account's state updates as soon as it finishes, the sidebar
     /// counts refresh without losing the selection, and the list reloads once at the end.
     /// </summary>
+    /// <summary>A provider that has not finished one account's sync in this time is reported as not answering.</summary>
+    private static readonly TimeSpan SyncTimeout = TimeSpan.FromMinutes(10);
+    private Task? _navigationRefresh;
+
+    private void RefreshNavigationSoon()
+    {
+        if (_navigationRefresh is { IsCompleted: false })
+            return;
+        _navigationRefresh = Coalesced();
+
+        async Task Coalesced()
+        {
+            await Task.Delay(250).ConfigureAwait(true);
+            await RefreshNavigationAsync().ConfigureAwait(true);
+        }
+    }
+
     private async Task SyncAccountsAsync(IReadOnlyList<AccountConfig> accounts)
     {
         foreach (var account in accounts)
             _syncBoard.Begin(account.Id, DateTimeOffset.UtcNow, account.LastMailSyncUtc);
         PublishSyncStatus();
-        using var slots = new SemaphoreSlim(SyncConcurrency);
         var degraded = new List<string>();
-        async Task One(AccountConfig account)
-        {
-            await slots.WaitAsync().ConfigureAwait(true);
-            SyncReport report;
-            try
+        // Independent per account: at most SyncConcurrency at once, each with its own time limit, so one slow or
+        // failing provider never holds up the others or the window.
+        await AccountSyncScheduler.RunAsync(accounts, SyncConcurrency, SyncTimeout,
+            (account, ct) =>
             {
                 // The account may have been deleted while others were syncing.
                 if (!_services.Config.Accounts.Contains(account))
+                    return Task.FromResult(SyncReport.Stopped("removed"));
+                return Task.Run(() => _services.Sync.SyncAsync(account, ct), ct);
+            },
+            (account, report) =>
+            {
+                if (!_services.Config.Accounts.Contains(account))
                 {
                     _syncBoard.Remove(account.Id);
-                    return;
+                    PublishSyncStatus();
+                    return Task.CompletedTask;
                 }
 
-                report = await Task.Run(() => _services.Sync.SyncAsync(account, CancellationToken.None)).ConfigureAwait(true);
-            }
-            finally
-            {
-                slots.Release();
-            }
+                _syncBoard.Finish(account.Id, report, DateTimeOffset.UtcNow);
+                if (report.Ok)
+                {
+                    account.LastMailSyncUtc = DateTimeOffset.UtcNow;
+                    // Remember where this server keeps Inbox, Sent, Drafts, Archive, and Trash (for example "INBOX.INBOX.Sent").
+                    SpecialFolders.Learn(account, report.Folders);
+                }
 
-            _syncBoard.Finish(account.Id, report, DateTimeOffset.UtcNow);
-            if (report.Ok)
-            {
-                account.LastMailSyncUtc = DateTimeOffset.UtcNow;
-                // Remember where this server keeps Inbox, Sent, Drafts, Archive, and Trash (for example "INBOX.INBOX.Sent").
-                SpecialFolders.Learn(account, report.Folders);
-            }
-
-            if (report.DegradedDedup)
-                degraded.Add(report.Detail);
-            PublishSyncStatus();
-            await RefreshNavigationAsync().ConfigureAwait(true);
-        }
-
-        await Task.WhenAll(accounts.Select(One)).ConfigureAwait(true);
+                if (report.DegradedDedup)
+                    degraded.Add(report.Detail);
+                PublishSyncStatus();
+                // Sidebar counts: one refresh for accounts finishing close together, not one redraw per account.
+                RefreshNavigationSoon();
+                return Task.CompletedTask;
+            }).ConfigureAwait(true);
+        await RefreshNavigationAsync().ConfigureAwait(true);
         SaveConfig();
         foreach (var detail in degraded.Distinct())
             Dialogs.Alert(detail, "Alondra1", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1225,33 +1248,55 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(NoteBody));
     }
 
+    /// <summary>Incremented by every reload; a reload that finds a newer one started drops its results (no stale scope).</summary>
+    private long _reloadVersion;
+
+    /// <summary>A plain list (newest first, no search or filter) longer than this shows its newest rows while the rest loads.</summary>
+    private const int FirstPageSize = 300;
+
     private async Task ReloadMessagesAsync()
     {
+        var version = ++_reloadVersion;
         _loadingMessages = true;
         RaiseListState();
         var searching = !string.IsNullOrWhiteSpace(SearchText);
-        IReadOnlyList<StoredMessage> found;
+        var list = new List<StoredMessage>();
         var total = 0;
+        IReadOnlySet<MessageKey>? attachments;
         try
         {
             var targets = FoldersInScope();
             // A Personal-mode folder that is not kept on this PC has no local copy: say so instead of "no messages".
             _scopeNotSynced = targets.Count > 0 && targets.All(t => !IsDemo && t.Account.Mode == AccountMode.Personal && !MailNavigation.SyncedHere(t.Account, t.FolderId));
+            attachments = await AttachmentMatchesAsync(Filter, CancellationToken.None).ConfigureAwait(true);
+            if (version != _reloadVersion)
+                return;
             if (IsDemo)
             {
-                var list = new List<StoredMessage>();
                 foreach (var (account, folderId) in targets)
                 {
                     var all = SampleCatalog.QueryScope(folderId, account.Id, "");
                     total += all.Count;
                     list.AddRange(searching ? SampleCatalog.QueryScope(folderId, account.Id, SearchText) : all);
                 }
-
-                found = MailListView.Apply(list, Filter, Sort, SortDescending, await AttachmentMatchesAsync(Filter, CancellationToken.None).ConfigureAwait(true));
             }
             else
             {
-                var list = new List<StoredMessage>();
+                var personal = targets.Where(t => t.Account.Mode == AccountMode.Personal).Select(t => (t.Account.Id, t.FolderId)).ToList();
+                if (!searching && !Filter.IsActive && Sort == MailSortField.Date && SortDescending && personal.Count > 0)
+                {
+                    // Large unified views: the newest rows first (spec §10, first usable rows), the full list follows.
+                    var page = await _services.Store.ListPageAsync(personal, FirstPageSize, CancellationToken.None).ConfigureAwait(true);
+                    if (version != _reloadVersion)
+                        return;
+                    if (page.Count >= FirstPageSize)
+                    {
+                        var held = targets.Where(t => t.Account.Mode != AccountMode.Personal).SelectMany(t => _services.Cache.List(t.Account.Id, t.FolderId));
+                        _unfilteredTotal = null;
+                        Publish(MailListView.Apply(page.Concat(held), MailListFilter.None, Sort, SortDescending));
+                    }
+                }
+
                 foreach (var (account, folderId) in targets)
                 {
                     if (account.Mode == AccountMode.Personal)
@@ -1261,6 +1306,8 @@ public sealed partial class MainViewModel : ObservableObject
                         list.AddRange(searching
                             ? await _services.Store.SearchAsync(account.Id, folderId, SearchText, CancellationToken.None).ConfigureAwait(true)
                             : all);
+                        if (version != _reloadVersion)
+                            return;
                     }
                     else
                     {
@@ -1269,20 +1316,25 @@ public sealed partial class MainViewModel : ObservableObject
                         list.AddRange(searching ? _services.Cache.Search(account.Id, folderId, SearchText) : all);
                     }
                 }
-
-                // One list across accounts, filtered and sorted; ties broken by account, folder and uid so the order is stable.
-                found = MailListView.Apply(list, Filter, Sort, SortDescending, await AttachmentMatchesAsync(Filter, CancellationToken.None).ConfigureAwait(true));
             }
         }
         finally
         {
-            _loadingMessages = false;
+            if (version == _reloadVersion)
+                _loadingMessages = false;
         }
 
+        // One list across accounts, filtered and sorted; ties broken by account, folder and uid so the order is stable.
+        var found = MailListView.Apply(list, Filter, Sort, SortDescending, attachments);
         _unfilteredTotal = total;
+        Publish(found);
+    }
+
+    /// <summary>Shows rows in the list in one update, keeping the open message open when it is still listed.</summary>
+    private void Publish(IReadOnlyList<StoredMessage> found)
+    {
         _selectionCount = 0;
         _selection = [];
-        // Keep the open message open when it is still in the list (sync, filters, sort); otherwise open the first row.
         var previous = SelectedMessage;
         // Dates relative to now (a message from yesterday no longer shows only its time), and the account each row
         // came from, by name, with the address when two accounts share a name.
@@ -1295,9 +1347,7 @@ public sealed partial class MainViewModel : ObservableObject
                 message.AccountName = name;
         }
 
-        Messages.Clear();
-        foreach (var message in found)
-            Messages.Add(message);
+        Messages.ReplaceAll(found);
         var keep = previous is null ? null
             : Messages.FirstOrDefault(m => m.AccountId == previous.AccountId && m.FolderId == previous.FolderId && m.Uid == previous.Uid);
         SelectMessage(keep ?? Messages.FirstOrDefault());
@@ -1872,9 +1922,11 @@ public sealed partial class MainViewModel : ObservableObject
     /// Matches subject, sender, recipients and downloaded bodies (the index) and attachment file names. The Mail list
     /// filters (unread, sender, date range…) narrow it too; the result group says which filters applied.
     /// </remarks>
-    private async Task<IReadOnlyList<StoredMessage>> SearchAllMailAsync(string query, CancellationToken cancellationToken)
+    private async Task<MailSearchPage> SearchAllMailAsync(string query, CancellationToken cancellationToken)
     {
         List<StoredMessage> found;
+        int? indexTotal = null;
+        var indexPage = 0;
         var byAttachment = await AttachmentMatchesAsync(new MailListFilter(AttachmentName: query), cancellationToken).ConfigureAwait(true) ?? new HashSet<MessageKey>();
         if (IsDemo)
         {
@@ -1884,7 +1936,16 @@ public sealed partial class MainViewModel : ObservableObject
         }
         else
         {
-            var stored = await _services.Store.SearchAsync(null, null, query, cancellationToken).ConfigureAwait(true);
+            // Without list filters only a first page is read (the panel shows a few per module), with the full count.
+            IReadOnlyList<StoredMessage> stored;
+            if (Filter.IsActive)
+                stored = await _services.Store.SearchAsync(null, null, query, cancellationToken).ConfigureAwait(true);
+            else
+            {
+                (stored, var total) = await _services.Store.SearchPageAsync(null, null, query, SearchPageSize, cancellationToken).ConfigureAwait(true);
+                (indexTotal, indexPage) = (total, stored.Count);
+            }
+
             found = [.. stored, .. _services.Cache.Search(null, null, query)];
             // Attachment names are not in the text index: add those messages from their folders.
             var have = found.Select(m => new MessageKey(m.AccountId, m.FolderId, m.Uid)).ToHashSet();
@@ -1897,10 +1958,12 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         if (!Filter.IsActive)
-            return found;
+            return new MailSearchPage(found, indexTotal is { } t ? t + found.Count - indexPage : null);
         var keys = await AttachmentMatchesAsync(Filter, cancellationToken).ConfigureAwait(true);
-        return found.Where(m => MailListView.Matches(m, Filter, keys)).ToList();
+        return new MailSearchPage(found.Where(m => MailListView.Matches(m, Filter, keys)).ToList());
     }
+
+    private const int SearchPageSize = 200;
 
     private string AccountLabel(string id) => MailAccounts.FirstOrDefault(a => a.Id == id) is { } a ? ComposeIdentity.Label(a) : id;
 

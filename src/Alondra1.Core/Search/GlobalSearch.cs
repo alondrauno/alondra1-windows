@@ -186,16 +186,26 @@ public sealed class SearchCoordinator
 /// Mail kept on this PC across every account and folder (or one account), from the local full-text index. Messages
 /// whose body was not downloaded match on their headers only, and the coverage says so.
 /// </summary>
+/// <summary>Mail matches for a query: the newest ones (a first page) and, when known, how many match in all.</summary>
+public sealed record MailSearchPage(IReadOnlyList<StoredMessage> Messages, int? Total = null);
+
 public sealed class MailSearchSource(
-    Func<string, CancellationToken, Task<IReadOnlyList<StoredMessage>>> search,
+    Func<string, CancellationToken, Task<MailSearchPage>> search,
     IReadOnlyList<AccountConfig> accounts,
     Func<string>? filters = null) : ISearchSource
 {
+    /// <summary>For a search that returns every match (the total is the number returned).</summary>
+    public MailSearchSource(Func<string, CancellationToken, Task<IReadOnlyList<StoredMessage>>> all, IReadOnlyList<AccountConfig> accounts, Func<string>? filters = null)
+        : this(async (q, ct) => new MailSearchPage(await all(q, ct).ConfigureAwait(true)), accounts, filters)
+    {
+    }
+
     public SearchModule Module => SearchModule.Mail;
 
     public async Task<SearchGroup> SearchAsync(string query, int limit, CancellationToken cancellationToken)
     {
-        var found = await search(query, cancellationToken).ConfigureAwait(true);
+        var page = await search(query, cancellationToken).ConfigureAwait(true);
+        var found = page.Messages;
         cancellationToken.ThrowIfCancellationRequested();
         var names = AccountNames(accounts);
         var terms = SearchText.Terms(query);
@@ -215,11 +225,12 @@ public sealed class MailSearchSource(
                 m.ReceivedUtc, m.AccountId, m.FolderId, m.Uid);
         }).ToList();
         var headersOnly = unique.Any(m => !m.BodyDownloaded);
+        var total = Math.Max(unique.Count, page.Total ?? 0);
         var coverage = accounts.Count == 0 ? "No mail account is set up."
             : $"Mail kept on this PC in {Plural(accounts.Count, "account")}" + (headersOnly ? "; some messages only by sender and subject (body not downloaded)." : ".");
         if (filters?.Invoke() is { Length: > 0 } active)
             coverage += $" Filtered: {active}.";
-        return new SearchGroup(SearchModule.Mail, hits, unique.Count, coverage);
+        return new SearchGroup(SearchModule.Mail, hits, total, coverage);
     }
 
     /// <summary>Account names for results; names used twice get the address so results are never mixed up.</summary>
