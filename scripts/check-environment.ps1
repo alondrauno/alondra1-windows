@@ -19,7 +19,8 @@ $found = $false
 $problems = @()
 foreach ($file in $files) {
     $bytes = [IO.File]::ReadAllBytes($file.FullName)
-    $texts = @([Text.Encoding]::UTF8.GetString($bytes), [Text.Encoding]::Unicode.GetString($bytes))
+    # UTF-16 literals can start at an odd byte offset (the metadata string heap isn't aligned): read from both.
+    $texts = @([Text.Encoding]::UTF8.GetString($bytes), [Text.Encoding]::Unicode.GetString($bytes), [Text.Encoding]::Unicode.GetString($bytes, 1, $bytes.Length - 1))
     foreach ($text in $texts) {
         foreach ($bad in $forbidden) {
             if ($text.Contains($bad)) { $problems += "$($file.Name) contains $bad" }
