@@ -1037,11 +1037,11 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
         }
 
         command.CommandText = "PRAGMA user_version";
-        if ((long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L) < 4)
+        if ((long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L) < 5)
         {
-            // Schema 4: Office files joined the readable kinds. Attachments marked "unsupported" by an earlier version
+            // Schemas 4 and 5: Office files, then Office 97–2003 files, joined the readable kinds. Attachments marked "unsupported" by an earlier version
             // are queued again; the reader puts the ones it still can't read back as unsupported.
-            command.CommandText = "UPDATE attachments SET text_state = '' WHERE text_state = 'unsupported'; PRAGMA user_version = 4;";
+            command.CommandText = "UPDATE attachments SET text_state = '' WHERE text_state = 'unsupported'; PRAGMA user_version = 5;";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 

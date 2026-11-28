@@ -142,7 +142,7 @@ public class AttachmentTextUpgradeTests
             {
                 legacy.Open();
                 using var command = legacy.CreateCommand();
-                command.CommandText = "PRAGMA user_version = 3";
+                command.CommandText = "PRAGMA user_version = 4";
                 command.ExecuteNonQuery();
             }
 

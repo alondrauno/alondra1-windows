@@ -197,7 +197,7 @@ Earlier P0 shell and sidebar work landed before `0e51f19`.
 
 ## 6. Migration and rollback
 
-- **Database schema 4 (data only).** Attachments marked "unsupported" by an earlier version are queued to be read again, because Office files are now readable.
+- **Database schemas 4 and 5 (data only).** Attachments marked "unsupported" by an earlier version are queued to be read again, because Office files (4) and Office 97–2003 files (5) are now readable.
 - **Database schema 3 (additive).** `attachments` gains `text_content` (null until read) and `text_state` (empty until read); `PRAGMA user_version` goes to 3. The text is removed with the attachment's file.
 - **Database schema 2 (additive).** `messages` gains `cc`, `reply_to`, `in_reply_to` and `refs` (text, empty by default), added on first start with `ALTER TABLE … ADD COLUMN` only when missing; `PRAGMA user_version` goes from 1 to 2. No row is rewritten or removed. A refresh that lacks these headers keeps the stored ones.
 - **New read queries:** `ListPageAsync`, `SearchPageAsync`, `FindByAttachmentNameAsync`, `ListAttachmentsToReadAsync`, `CountAttachmentsToReadAsync`, `FindByAttachmentTextAsync`; one write, `SetAttachmentTextAsync`.
