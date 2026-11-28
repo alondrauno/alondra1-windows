@@ -15,18 +15,34 @@ public static class AttachmentTextProcess
 {
     public const string Flag = "--read-attachment-text";
 
-    /// <summary>In the child: writes the text to standard output as UTF-8. Exit code 0 when read, 2 when not.</summary>
-    public static int RunChild(string kind, string path)
+    /// <summary>
+    /// In the child: writes the text to standard output as UTF-8. Exit code 0 when read, 2 when not. Scanned PDF pages
+    /// (an image, almost no text) are read with Windows OCR; if OCR fails, the text PdfPig found is still returned.
+    /// </summary>
+    public static async Task<int> RunChildAsync(string kind, string path)
     {
         try
         {
-            using var file = File.OpenRead(path);
-            var text = kind switch
+            string? text;
+            await using (var file = File.OpenRead(path))
             {
-                "pdf" when file.Length <= AttachmentText.MaxPdfBytes => Alondra1.Mail.PdfText.Read(file, AttachmentText.MaxPdfPages, AttachmentText.MaxChars),
-                "office" when file.Length <= AttachmentText.MaxOfficeBytes => Alondra1.Mail.OfficeText.Read(file, AttachmentText.MaxChars),
-                _ => null,
-            };
+                switch (kind)
+                {
+                    case "pdf" when file.Length <= AttachmentText.MaxPdfBytes:
+                        var (found, scanned) = Alondra1.Mail.PdfText.ReadWithScans(file, AttachmentText.MaxPdfPages, AttachmentText.MaxChars);
+                        text = found;
+                        if (scanned.Count > 0 && found.Length < AttachmentText.MaxChars)
+                            text += await Ocr(path, scanned, AttachmentText.MaxChars - found.Length);
+                        break;
+                    case "office" when file.Length <= AttachmentText.MaxOfficeBytes:
+                        text = Alondra1.Mail.OfficeText.Read(file, AttachmentText.MaxChars);
+                        break;
+                    default:
+                        text = null;
+                        break;
+                }
+            }
+
             if (text is null)
                 return 2;
             using var output = Console.OpenStandardOutput();
@@ -38,6 +54,18 @@ public static class AttachmentTextProcess
         {
             // Any parser error is "could not be read"; no file content or details are reported.
             return 2;
+        }
+    }
+
+    private static async Task<string> Ocr(string path, IReadOnlyList<int> pages, int maxChars)
+    {
+        try
+        {
+            return await PdfOcr.RecognizeAsync(path, pages, maxChars);
+        }
+        catch (Exception)
+        {
+            return "";
         }
     }
 

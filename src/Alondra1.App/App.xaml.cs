@@ -16,7 +16,7 @@ public partial class App : Application
         // opens no window, services or settings; the app runs it with a time limit and stops it if it takes too long.
         if (e.Args is [AttachmentTextProcess.Flag, var kind, var file])
         {
-            Shutdown(AttachmentTextProcess.RunChild(kind, file));
+            Shutdown(await AttachmentTextProcess.RunChildAsync(kind, file));
             return;
         }
 

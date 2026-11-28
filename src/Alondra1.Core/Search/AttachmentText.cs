@@ -24,7 +24,8 @@ public static class AttachmentText
     public const long MaxOfficeBytes = 20_000_000;
     public const int MaxPdfPages = 50;
     public const int MaxChars = 200_000;
-    public static readonly TimeSpan IsolatedTimeLimit = TimeSpan.FromSeconds(20);
+    /// <summary>Per file; long enough for OCR of up to 10 scanned PDF pages.</summary>
+    public static readonly TimeSpan IsolatedTimeLimit = TimeSpan.FromSeconds(60);
 
     public static readonly IReadOnlyList<string> TextExtensions = [".txt", ".csv", ".md", ".log"];
 

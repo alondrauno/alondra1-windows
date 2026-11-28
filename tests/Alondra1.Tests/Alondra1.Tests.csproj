@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -31,6 +31,8 @@
     <ProjectReference Include="..\..\src\Alondra1.Persistence\Alondra1.Persistence.csproj" />
     <ProjectReference Include="..\..\src\Alondra1.Mail\Alondra1.Mail.csproj" />
     <ProjectReference Include="..\..\src\Alondra1.Providers\Alondra1.Providers.csproj" />
+    <!-- The app: Windows OCR of scanned PDF pages (PdfOcr) uses the Windows APIs only the app targets. -->
+    <ProjectReference Include="..\..\src\Alondra1.App\Alondra1.App.csproj" />
   </ItemGroup>
 
 </Project>
