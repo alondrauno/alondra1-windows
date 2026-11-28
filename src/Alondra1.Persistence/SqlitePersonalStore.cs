@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 
 namespace Alondra1.Persistence;
 
-public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
+public sealed partial class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
 {
     private readonly string _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -29,6 +29,9 @@ public sealed class SqlitePersonalStore : IPersonalStore, IAsyncDisposable
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             await MigrateSearchKeysAsync(_connection, cancellationToken).ConfigureAwait(false);
             await MigrateThreadColumnsAsync(_connection, cancellationToken).ConfigureAwait(false);
+            await using var rules = _connection.CreateCommand();
+            rules.CommandText = RuleSchema;
+            await rules.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {

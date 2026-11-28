@@ -35,6 +35,9 @@ public sealed class SyncCoordinator
         _conflicts = conflicts;
     }
 
+    /// <summary>Mail rules and the blocklist (null: none). Incoming rules run on new mail; every send passes the outgoing guard.</summary>
+    public Alondra1.Core.Rules.MailRuleService? Rules { get; set; }
+
     public async Task<SyncReport> SyncAsync(AccountConfig account, CancellationToken cancellationToken)
     {
         var gate = Gate(account.Id);
@@ -81,6 +84,9 @@ public sealed class SyncCoordinator
     public async Task<SendResult> SendAsync(AccountConfig account, OutgoingMail mail, CancellationToken cancellationToken)
     {
         mail.MessageId = MessageIdentity.Ensure(mail.MessageId);
+        // Outgoing rules (Part B §4.3): a blocked or unconfirmed message is not sent or queued; the draft stays with the user.
+        if (Rules?.SendRefusal(account, mail) is { } refusal)
+            return new SendResult(SmtpAcceptance.Failed, mail.MessageId, refusal, false);
         var secrets = await _secrets.LoadAsync(account.Id, cancellationToken).ConfigureAwait(false);
         var decision = ConnectionPolicy.Evaluate(account, secrets);
         if (!decision.Allowed && account.Mode == AccountMode.Online)
@@ -98,7 +104,10 @@ public sealed class SyncCoordinator
         var result = await _mail.SendAsync(account, secrets, mail, cancellationToken).ConfigureAwait(false);
         if (result.Acceptance == SmtpAcceptance.Accepted)
         {
-            _cache.Upsert(LocalCopy(account, mail, SpecialFolders.Resolve(account, "Sent"), ItemAvailability.Downloaded, localOnly: account.Incoming.Protocol == MailProtocol.Pop3, result.Acceptance));
+            var copy = LocalCopy(account, mail, SpecialFolders.Resolve(account, "Sent"), ItemAvailability.Downloaded, localOnly: account.Incoming.Protocol == MailProtocol.Pop3, result.Acceptance);
+            _cache.Upsert(copy);
+            if (Rules is not null)
+                await Rules.ApplySentAsync(account, mail, copy).ConfigureAwait(false);
         }
         else if (result.Acceptance == SmtpAcceptance.Uncertain)
         {
@@ -278,6 +287,7 @@ public sealed class SyncCoordinator
     {
         var folders = await _mail.ListFoldersAsync(account, secrets, cancellationToken).ConfigureAwait(false);
         var degraded = false;
+        var arrivals = new List<StoredMessage>();
         foreach (var folder in folders.Where(folder => FolderSelected(account, folder)))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -289,6 +299,8 @@ public sealed class SyncCoordinator
                 checkpoint = null;
 
             var limit = checkpoint is null ? account.Sync.HistoryLimit : null;
+            // Rules act on mail that arrives after the first download, never on the history (no silent backfill).
+            var incremental = checkpoint is not null;
             var remote = await _mail.FetchChangesAsync(account, secrets, folder, checkpoint, limit, cancellationToken).ConfigureAwait(false);
             degraded |= remote.DegradedDedup;
             if (remote.DegradedDedup && !account.PopUidlMissingDisclosed)
@@ -320,6 +332,10 @@ public sealed class SyncCoordinator
                     message.Subject = "Remote copy · " + message.Subject;
                     _conflicts.ReportPreservedBoth($"Kept both versions of “{message.Subject}”.");
                 }
+                else if (local is null && incremental && message.Uid > 0)
+                {
+                    arrivals.Add(message);
+                }
 
                 batch.Upserts.Add(message);
             }
@@ -346,10 +362,28 @@ public sealed class SyncCoordinator
             }
         }
 
+        await RunIncomingRulesAsync(account, arrivals, cancellationToken).ConfigureAwait(false);
         await RecoverSubmittingAsync(account, cancellationToken).ConfigureAwait(false);
         await DrainSendsAsync(account, cancellationToken).ConfigureAwait(false);
         var detail = degraded ? Pop3Policy.DegradedDedupNotice : "Saved mail is up to date.";
         return new SyncReport { Ok = true, Detail = detail, DegradedDedup = degraded, Folders = folders };
+    }
+
+    /// <summary>Incoming rules and the blocklist on newly arrived mail; a failure is recorded as rule activity, never a failed sync.</summary>
+    private async Task RunIncomingRulesAsync(AccountConfig account, IReadOnlyList<StoredMessage> arrivals, CancellationToken cancellationToken)
+    {
+        if (Rules is null || arrivals.Count == 0)
+            return;
+        try
+        {
+            await Rules.ProcessIncomingAsync(account, arrivals,
+                message => _store.GetBodyAsync(new MessageKey(message.AccountId, message.FolderId, message.Uid), cancellationToken),
+                command => ApplyLocalCommandAsync(account, command, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+        {
+            // Mail receipt never fails because of rules.
+        }
     }
 
     private async Task DownloadBodiesAsync(AccountConfig account, SecretBundle secrets, RemoteFolder folder, IReadOnlyList<StoredMessage> messages, CancellationToken cancellationToken)
@@ -412,6 +446,19 @@ public sealed class SyncCoordinator
             if (mail is null)
                 continue;
             mail.MessageId = MessageIdentity.Ensure(op.MessageId);
+            // The queue is checked again at dispatch with the rules in force now (Part B §4.3).
+            if (Rules?.SendRefusal(account, mail) is { } refusal)
+            {
+                op.State = SmtpAcceptance.Failed;
+                op.LastError = refusal;
+                op.UpdatedUtc = _clock.UtcNow;
+                op.Attempt += 1;
+                var held = new PersonalBatch();
+                held.Operations.Add(op);
+                await _store.CommitAsync(held, cancellationToken).ConfigureAwait(false);
+                last = new SendResult(SmtpAcceptance.Failed, mail.MessageId ?? "", refusal, false);
+                continue;
+            }
             op.State = SmtpAcceptance.Submitting;
             op.UpdatedUtc = _clock.UtcNow;
             op.Attempt += 1;
@@ -436,6 +483,8 @@ public sealed class SyncCoordinator
                     result.Acceptance);
                 done.Upserts.Add(sent);
                 await _store.CommitAsync(done, cancellationToken).ConfigureAwait(false);
+                if (result.Acceptance == SmtpAcceptance.Accepted && Rules is not null)
+                    await Rules.ApplySentAsync(account, mail, sent).ConfigureAwait(false);
                 last = result;
                 if (result.Acceptance == SmtpAcceptance.Uncertain)
                     break;

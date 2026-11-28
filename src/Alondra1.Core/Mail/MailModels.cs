@@ -163,6 +163,9 @@ public sealed class OutgoingMail
     /// <summary>The References header of a reply: the parent's References plus its Message-ID, space-separated.</summary>
     public string? References { get; set; }
     public List<OutgoingAttachment> Attachments { get; set; } = [];
+
+    /// <summary>The outgoing-rule warnings the user confirmed: the draft and rule revisions they were shown for (null: none).</summary>
+    public string? RuleApproval { get; set; }
 }
 
 public sealed class RemoteFolder

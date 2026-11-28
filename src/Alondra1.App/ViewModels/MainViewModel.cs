@@ -2646,6 +2646,8 @@ public sealed class AppServices
     public Alondra1.Core.Notes.NoteAssets? NoteAssets { get; init; }
     /// <summary>Tags on mail, notes, tasks and events (null when todo.db could not be opened).</summary>
     public Alondra1.Core.Tags.TagBoard? Tags { get; init; }
+    /// <summary>Mail rules and blocked senders &amp; words (kept in personal.db).</summary>
+    public Alondra1.Core.Rules.MailRuleService? Rules { get; init; }
     public string? TaskStoreError { get; init; }
 
     /// <summary>Alondra1's data folder (%LOCALAPPDATA%\alondra1, or a temporary folder in demo mode).</summary>
@@ -2672,7 +2674,7 @@ public sealed class AppServices
     {
         OAuth = new Alondra1.Providers.OAuthService(Config.OAuth);
         Organizer = new Alondra1.Providers.OrganizerGateway(Config.OAuth);
-        Sync = new SyncCoordinator(Mail, Store, Cache, Secrets, OAuth, new Alondra1.Core.Ports.SystemClock(), new NullConflicts());
+        Sync = new SyncCoordinator(Mail, Store, Cache, Secrets, OAuth, new Alondra1.Core.Ports.SystemClock(), new NullConflicts()) { Rules = Rules };
     }
 
     public static async Task<AppServices> CreateAsync(string? home = null)
@@ -2693,6 +2695,17 @@ public sealed class AppServices
         var (taskStore, taskFiles, board, taskError) = await OpenTasksAsync(root).ConfigureAwait(false);
         var (notesBoard, noteAssets) = await OpenNotesAsync(config, taskStore, root).ConfigureAwait(false);
         var tagBoard = await OpenTagsAsync(taskStore).ConfigureAwait(false);
+        var rules = new Alondra1.Core.Rules.MailRuleService(store, tagBoard, new Alondra1.Core.Ports.SystemClock());
+        try
+        {
+            await rules.LoadAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Rules unreadable: mail works without them.
+        }
+
+        sync.Rules = rules;
         var (cloudApi, cloudAccount, cloudSync, discovery, endpoints) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, taskFiles, root, tagBoard);
         return new AppServices
         {
@@ -2704,6 +2717,7 @@ public sealed class AppServices
             NotesBoard = notesBoard,
             NoteAssets = noteAssets,
             Tags = tagBoard,
+            Rules = rules,
             Home = root,
             TaskStore = taskStore,
             TaskFiles = taskFiles,
