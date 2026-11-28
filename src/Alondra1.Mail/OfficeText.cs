@@ -29,6 +29,22 @@ public static class OfficeText
 
     public static string Read(Stream stream, int maxChars)
     {
+        // Legacy binary formats (.doc, .xls, .ppt) are compound files, recognised by their signature.
+        if (stream.CanSeek)
+        {
+            if (stream.Length > MaxTotalBytes)
+                throw new InvalidDataException("File too large.");
+            var head = new byte[8];
+            var got = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            stream.Seek(-got, SeekOrigin.Current);
+            if (LegacyOfficeText.IsCompoundFile(head.AsSpan(0, got)))
+            {
+                using var copy = new MemoryStream();
+                stream.CopyTo(copy);
+                return LegacyOfficeText.Read(copy.ToArray(), maxChars);
+            }
+        }
+
         using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
         if (zip.Entries.Count > MaxEntries)
             throw new InvalidDataException("Too many parts.");

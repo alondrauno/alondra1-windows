@@ -29,7 +29,8 @@ public class AttachmentTextTests
     [InlineData("budget.xlsx", "application/octet-stream", AttachmentTextKind.Office)]
     [InlineData("letter", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", AttachmentTextKind.Office)]
     [InlineData("minutes.odt", "application/octet-stream", AttachmentTextKind.Office)]
-    [InlineData("legacy.doc", "application/msword", AttachmentTextKind.None)]
+    [InlineData("legacy.doc", "application/msword", AttachmentTextKind.Office)]
+    [InlineData("photo.jpg", "image/jpeg", AttachmentTextKind.None)]
     [InlineData("archive.zip", "application/zip", AttachmentTextKind.None)]
     [InlineData("run.cmd", "text/plain", AttachmentTextKind.None)]
     public void OnlyTheAllowlistIsRead(string name, string type, AttachmentTextKind expected) =>

@@ -10,12 +10,12 @@ public enum AttachmentTextKind { None, PlainText, Pdf, Office }
 /// <summary>
 /// Attachment content search (Mail UI spec §8.3) for a small documented allowlist: plain-text files (.txt, .csv, .md,
 /// .log, text/plain, up to 1 MB), PDF files (up to 10 MB, the first 50 pages) and Office files (Word, Excel, PowerPoint
-/// and OpenDocument, up to 20 MB), at most 200,000 characters each. Only files already downloaded to this PC are read,
+/// (current and 97–2003 binary formats) and OpenDocument, up to 20 MB), at most 200,000 characters each. Only files already downloaded to this PC are read,
 /// once, after sync; nothing is downloaded for search. Plain text is read as text; PDF and Office files are read by
 /// bounded text-only parsers in a separate process with a time limit. Nothing in a file is executed or opened in
 /// another app (no macros, embedded objects or external references), and archives are not unpacked. The text is kept
 /// with the message bodies in the local database (same storage and retention) and removed when the attachment's file
-/// is removed. Other formats (legacy .doc/.xls/.ppt, images, archives) are searched by name only.
+/// is removed. Other formats (encrypted files, images, archives) are searched by name only.
 /// </summary>
 public static class AttachmentText
 {
@@ -28,8 +28,12 @@ public static class AttachmentText
 
     public static readonly IReadOnlyList<string> TextExtensions = [".txt", ".csv", ".md", ".log"];
 
-    /// <summary>Word, Excel, PowerPoint (including macro-enabled; macros are never run) and OpenDocument.</summary>
-    public static readonly IReadOnlyList<string> OfficeExtensions = [".docx", ".docm", ".xlsx", ".xlsm", ".pptx", ".pptm", ".odt", ".ods", ".odp"];
+    /// <summary>
+    /// Word, Excel, PowerPoint (current and macro-enabled, and the 97–2003 binary formats; macros are never run) and
+    /// OpenDocument.
+    /// </summary>
+    public static readonly IReadOnlyList<string> OfficeExtensions =
+        [".docx", ".docm", ".xlsx", ".xlsm", ".pptx", ".pptm", ".odt", ".ods", ".odp", ".doc", ".dot", ".xls", ".xlt", ".ppt", ".pot", ".pps"];
 
     /// <summary>Stored states: not read yet (""), read, not a readable kind, too large, or could not be read.</summary>
     public const string Pending = "", Read = "read", Unsupported = "unsupported", TooLarge = "too-large", Failed = "failed";
@@ -45,6 +49,9 @@ public static class AttachmentText
             return AttachmentTextKind.PlainText;
         if (OfficeExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
             || a.ContentType.StartsWith("application/vnd.openxmlformats-officedocument.", StringComparison.OrdinalIgnoreCase)
+            || a.ContentType.StartsWith("application/msword", StringComparison.OrdinalIgnoreCase)
+            || a.ContentType.StartsWith("application/vnd.ms-excel", StringComparison.OrdinalIgnoreCase)
+            || a.ContentType.StartsWith("application/vnd.ms-powerpoint", StringComparison.OrdinalIgnoreCase)
             || a.ContentType.StartsWith("application/vnd.oasis.opendocument.text", StringComparison.OrdinalIgnoreCase)
             || a.ContentType.StartsWith("application/vnd.oasis.opendocument.spreadsheet", StringComparison.OrdinalIgnoreCase)
             || a.ContentType.StartsWith("application/vnd.oasis.opendocument.presentation", StringComparison.OrdinalIgnoreCase))
