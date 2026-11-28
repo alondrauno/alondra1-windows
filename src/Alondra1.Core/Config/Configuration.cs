@@ -120,6 +120,12 @@ public sealed class AppearanceSettings
 /// <summary>How messages are shown in the reader (Settings → Mail). Local to this PC; never contains secrets.</summary>
 public sealed class ReadingSettings
 {
+    /// <summary>Incoming mail rules are paused (Settings → Mail rules); the rules are kept.</summary>
+    public bool IncomingRulesOff { get; set; }
+
+    /// <summary>The blocklist is paused (Settings → Blocked senders &amp; words); the entries are kept.</summary>
+    public bool BlocklistOff { get; set; }
+
     /// <summary>Open the HTML version of a message when it has one (default), or the plain text.</summary>
     public bool PreferHtml { get; set; } = true;
 

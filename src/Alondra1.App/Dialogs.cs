@@ -280,7 +280,9 @@ public static class Dialogs
             {
                 if (model.TagBoard is { } board)
                     Tags.TagUi.ShowItems(window, board, tagId, model.ResolveTagged);
-            }, _ => 0)),
+            }, tagId => model.Rules?.RulesUsing(tagId) ?? 0)),
+            ("Mail rules", "Filter", Rules.RuleUi.RulesPage(model, () => window)),
+            ("Blocked senders", "Alert", Rules.RuleUi.BlockedPage(model, () => window)),
             ("About", "Chat", about),
         };
         var grid = new Grid();
@@ -795,7 +797,16 @@ public static class Dialogs
             if (Chosen() is not { } selected)
                 return;
             mail.AccountId = selected.Id;
+            // Outgoing rules (Part B §4.3): a blocked message, or a warning the user declines, keeps the draft open.
+            if (!Rules.RuleUi.ConfirmSend(window, model.Rules, selected, mail))
+                return;
             var result = await model.Send(selected, mail);
+            if (result.Acceptance == SmtpAcceptance.Failed && result.Error is { } refused && refused.StartsWith("Not sent", StringComparison.Ordinal))
+            {
+                Alert(window, refused, "Alondra1");
+                return;
+            }
+
             Alert(window, result.Acceptance + (result.Error is null ? "" : "\n" + result.Error), "Alondra1");
             window.Close();
         }));

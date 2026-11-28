@@ -467,7 +467,30 @@ Code: `Alondra1.Core/Tags` (TagBoard, TagRules), `Alondra1.Persistence/SqliteTas
 | TAG-05 | Cross-module view of a tag (Mail, Notes, To Do, Calendar) with open actions | Done | Settings → Tags → Show items; items not on this PC are listed as such. |
 | TAG-06 | Mail references hash account + Message-ID (follow moves; the cloud never sees ids); without Message-ID, account + folder + uid | Done | `TagRules.MailRef`. |
 | TAG-07 | Cloud Sync of tags and links; account calendar events' tags stay on this PC; offline duplicate names merge into the cloud's tag | Done | |
-| TAG-08 | Deleting a task or note (for good) removes its tags; deleting a tag never deletes items | Done | `TagBoard.PruneAsync`, `DeleteAsync`. |
+| TAG-08 | Deleting a task or note (for good) removes its tags; deleting a tag never deletes items | Done | `TagBoard.PruneAsync`, `DeleteAsync`. A rule that uses a deleted tag is paused with the reason shown (RULE-08). |
+
+## 6c. Mail rules and blocked senders (`RULE`, `BLOCK`)
+
+Code: `Alondra1.Core/Rules` (RuleEngine, MailMatch, RuleValidator, MailRuleService), `Alondra1.Persistence/SqlitePersonalStore.Rules.cs` (personal.db tables), `SyncCoordinator` (incoming after new mail is saved; guard on every send), `Alondra1.App/Rules/RuleUi.cs`. Tests: `MailRuleTests.cs`. Spec: FEATURES_EXTENSION Part B §3–§5.
+
+Execution owner: mail exists only in the Windows app, so this app is the single processor of its accounts' rules (no other client or the cloud runs them). Incoming rules need a durable local copy: they run for accounts in Personal mode, on mail that arrives after an account's first download; Online-mode accounts and the first download are never processed (no silent backfill). Nothing runs in the background while the app is closed.
+
+| ID | Atomic feature | Status | Notes |
+| --- | --- | --- | --- |
+| RULE-01 | Settings → Mail rules: list by direction with on/off, account, summary, last run and result; up/down order; edit, duplicate, delete; rule activity | Done | Order is the saved priority (ties by id), not the row order on screen. |
+| RULE-02 | Rule builder: name, account, direction, all/any, conditions (From, To or Cc, Reply-To, Subject, Message text, Tag, Has attachments, Attachment name, Account, Is unread, Is flagged), actions, Stop, Test on the selected message | Done | No regex, scripts, forwarding, replies or permanent deletion. Invalid field/operator pairs refused; 20 conditions, 10 actions, 200-character values, 100 rules on. |
+| RULE-03 | Incoming actions: add or remove tag, read/unread, flag, move to folder, archive, Junk, Trash (recoverable; confirmed when saving) | Done | Later rules see tags added by earlier ones; the last folder action wins; a missing folder pauses the rule instead of moving elsewhere. |
+| RULE-04 | Three-valued evaluation: a body that isn't downloaded is unknown, never a negative match; such rules do nothing and activity says so | Done | `RuleEngine.Evaluate`. |
+| RULE-05 | Once per message: the execution key (account + stable mail reference) is recorded before side effects; sync echoes and repeats do nothing | Done | Activity keeps no subjects or bodies; 30 days, keys longer. |
+| RULE-06 | Outgoing rules: warn (confirmation tied to the draft and rule revisions) or block; checked in the compose window and again when a queued message is dispatched; tags on the sent copy | Done | A blocked message is not sent or queued and the draft stays open. Moving sent copies isn't offered. |
+| RULE-07 | Create rule from this message (prefilled, off until turned on) | Done | Mail list context menu. |
+| RULE-08 | A rule whose tag was deleted is paused with the reason; the tag delete prompt says how many rules use it | Done | |
+| RULE-09 | Message size and importance conditions | Gap | The local mail copy keeps neither. |
+| BLOCK-01 | Settings → Blocked senders: address, domain (optionally with subdomains), words in the subject or message text (whole words, or also inside words); per account or all; on/off; hit count and last hit | Done | IDNA domains, label-boundary matching, display names never used; malformed values and wildcards refused; 500 entries. |
+| BLOCK-02 | Block sender / Block domain… from the message list (domain asks first) | Done | |
+| BLOCK-03 | Blocked mail moves to the account's Junk folder with the reason and skips ordinary rules; an account without Junk keeps it in place and lists it | Done | Never deleted or bounced. |
+| BLOCK-04 | Blocked messages: Restore (exempts that message), Unblock, Restore & unblock | Done | |
+| BLOCK-05 | Before a word or phrase is added, how many messages shown now it would match (nothing changes) | Done | |
 
 ## 6. Contacts (`CONT`)
 
@@ -610,7 +633,7 @@ Code: `installer/` (Inno Setup, `publish.ps1`), `App/App.xaml.cs`, `App/CommandL
 | --- | --- | --- | --- |
 | Configuration | `config.json` (+ `.bak`) | `ConfigFileStore` via `MainViewModel` | `AppConfig.SchemaVersion` |
 | Secrets | `secrets\*` | `DpapiSecretStore` | one file per account; `alondra1-cloud` for the cloud refresh token |
-| Mail copy, outbox, organizer cache | `personal.db` | `SqlitePersonalStore` (batches from `SyncCoordinator`) | `PRAGMA user_version` |
+| Mail copy, outbox, organizer cache, mail rules | `personal.db` | `SqlitePersonalStore` (batches from `SyncCoordinator`; rules from `MailRuleService`) | `PRAGMA user_version`; rule tables are additive (`mail_rules`, `mail_block_entries`, `mail_rule_executions`, `mail_quarantine`, `mail_block_exemptions`) |
 | Tasks, notes, sync state | `todo.db` | `TaskBoard` (tasks), `NotesBoard` (notes), `CloudSyncEngine` (remote apply) | schema **5**: 3 = sync tables, 4 = notes, 5 = `sync_issues.copy_id` |
 | Task files | `task-files\<task>\` | `TaskFileStore` | |
 | Note pictures | `notes-assets\<ab>\<sha256>` | `NoteAssets` | content-addressed |

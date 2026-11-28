@@ -177,6 +177,8 @@ public partial class MainWindow : Window
         await todo.InitializeAsync();
         if (_model.IsDemo && _model.TagBoard is { } tags)
             await Alondra1.App.Tags.TagSamples.SeedAsync(tags, App.Services.Tasks, App.Services.NotesBoard);
+        if (_model.IsDemo && _model.Rules is { } rules)
+            await Alondra1.App.Rules.RuleSamples.SeedAsync(rules, _model.TagBoard);
         _reminders = new Alondra1.App.Tasks.ReminderNotifier(todo);
         _reminders.Start();
         Closed += (_, _) => _reminders?.Dispose();
@@ -383,6 +385,9 @@ public partial class MainWindow : Window
                 "background" => () => Dialogs.ShowSettings(this, _model, 1),
                 "mail" => () => Dialogs.ShowSettings(this, _model, 2),
                 "tags" => () => Dialogs.ShowSettings(this, _model, 7),
+                "rules" => () => Dialogs.ShowSettings(this, _model, 8),
+                "blocked" => () => Dialogs.ShowSettings(this, _model, 9),
+                "rule" => () => Alondra1.App.Rules.RuleUi.Edit(this, _model, _model.Rules?.Rules.FirstOrDefault()),
                 "filters" => () => Dialogs.ShowMailFilters(this, _model),
                 "account" => () => Dialogs.ShowAccount(this, _model, null),
                 "welcome" => () => Dialogs.ShowWelcome(this, _model),
@@ -1078,6 +1083,14 @@ public partial class MainWindow : Window
 
         if (_model.TagBoard is { } tags)
             menu.Items.Add(MenuItem("Tags…", () => _ = TagMessagesAsync(tags, messages)));
+        if (_model.Rules is not null && !_model.IsDemo && messages.Count == 1 && messages[0] is { } one)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItem("Block sender", () => _ = Alondra1.App.Rules.RuleUi.BlockFromMessageAsync(this, _model, one, domain: false)));
+            menu.Items.Add(MenuItem("Block domain…", () => _ = Alondra1.App.Rules.RuleUi.BlockFromMessageAsync(this, _model, one, domain: true)));
+            menu.Items.Add(MenuItem("Create rule from this message…", () => Alondra1.App.Rules.RuleUi.RuleFromMessage(this, _model, one)));
+        }
+
         if (menu.Items.Count == 0)
             e.Handled = true;
     }

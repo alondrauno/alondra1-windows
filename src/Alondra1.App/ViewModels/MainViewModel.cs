@@ -1586,6 +1586,29 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The tag board (null when todo.db could not be opened).</summary>
     public Alondra1.Core.Tags.TagBoard? TagBoard => _services.Tags;
 
+    /// <summary>Mail rules and blocked senders &amp; words (null when personal.db is unavailable).</summary>
+    public Alondra1.Core.Rules.MailRuleService? Rules => _services.Rules;
+
+    /// <summary>What the rules see of a message: its headers, the saved body when downloaded, and its tags.</summary>
+    public async Task<Alondra1.Core.Rules.MessageFacts> FactsAsync(StoredMessage message)
+    {
+        StoredBody? body = null;
+        if (message.BodyDownloaded && !IsDemo)
+            body = await _services.Store.GetBodyAsync(new MessageKey(message.AccountId, message.FolderId, message.Uid), CancellationToken.None).ConfigureAwait(true);
+        var tags = (TagBoard?.TagsOf(Alondra1.Core.Tags.TagRules.Mail, MailRef(message)).Select(t => t.Id) ?? []).ToHashSet(StringComparer.Ordinal);
+        return Alondra1.Core.Rules.MailRuleService.Facts(message, body, tags);
+    }
+
+    /// <summary>Runs a mail command for a rule action (Restore from quarantine) the same way as the user's own actions.</summary>
+    public async Task ApplyRuleCommandAsync(string accountId, RemoteMailCommand command)
+    {
+        if (_services.Config.Accounts.FirstOrDefault(a => a.Id == accountId) is not { } account)
+            throw new InvalidOperationException("The account of this message was removed.");
+        await _services.Sync.ApplyLocalCommandAsync(account, command, CancellationToken.None).ConfigureAwait(true);
+        await ReloadMessagesAsync().ConfigureAwait(true);
+        await RefreshNavigationAsync().ConfigureAwait(true);
+    }
+
     /// <summary>A message's tag reference: account + Message-ID, so its tags follow it between folders.</summary>
     public static string MailRef(StoredMessage m) => Alondra1.Core.Tags.TagRules.MailRef(m.AccountId, m.MessageId, m.FolderId, m.Uid);
 
@@ -2705,6 +2728,8 @@ public sealed class AppServices
             // Rules unreadable: mail works without them.
         }
 
+        rules.IncomingEnabled = !config.Reading.IncomingRulesOff;
+        rules.BlocklistEnabled = !config.Reading.BlocklistOff;
         sync.Rules = rules;
         var (cloudApi, cloudAccount, cloudSync, discovery, endpoints) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, taskFiles, root, tagBoard);
         return new AppServices

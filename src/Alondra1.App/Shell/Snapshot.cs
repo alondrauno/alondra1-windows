@@ -98,12 +98,21 @@ public static class Snapshot
             try
             {
                 var handle = new WindowInteropHelper(dialog).Handle;
-                GetWindowRect(handle, out var rect);
-                using (var bitmap = new System.Drawing.Bitmap(rect.Right - rect.Left, rect.Bottom - rect.Top))
+                // The window's own rendering (client area): other windows on the desktop can't cover it.
+                if (dialog.Content is FrameworkElement content && content.ActualWidth > 0)
                 {
-                    using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
-                        graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, bitmap.Size);
-                    bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+                    var dpi = VisualTreeHelper.GetDpi(content);
+                    var image = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth * dpi.DpiScaleX), (int)Math.Ceiling(content.ActualHeight * dpi.DpiScaleY),
+                        dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+                    var background = new DrawingVisual();
+                    using (var dc = background.RenderOpen())
+                        dc.DrawRectangle(dialog.Background ?? Brushes.White, null, new System.Windows.Rect(0, 0, content.ActualWidth, content.ActualHeight));
+                    image.Render(background);
+                    image.Render(content);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(image));
+                    using var file = File.Create(path);
+                    encoder.Save(file);
                 }
 
                 report.Append($"window {dialog.ActualWidth:0}x{dialog.ActualHeight:0}; ");
