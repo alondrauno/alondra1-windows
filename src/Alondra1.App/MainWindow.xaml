@@ -607,7 +607,9 @@
                          PreviewMouseLeftButtonUp="MessageList_PreviewMouseLeftButtonUp"
                          KeyDown="MessageList_KeyDown"
                          SizeChanged="MessageList_SizeChanged"
+                         ContextMenuOpening="MessageList_ContextMenuOpening"
                          ScrollViewer.ScrollChanged="MessageList_ScrollChanged">
+                  <ListBox.ContextMenu><ContextMenu/></ListBox.ContextMenu>
                   <!-- No built-in 1 px padding: rows start exactly where the column header starts, at every display scale. -->
                   <ListBox.Template>
                     <ControlTemplate TargetType="ListBox">
@@ -702,6 +704,11 @@
                         </Border>
                         <ui:Alondra1Icon DockPanel.Dock="Left" Kind="Reply" IconSize="12" Margin="10,0,6,0" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"
                                           Visibility="{Binding IsThreadReply, Converter={StaticResource BoolVis}}" ToolTip="Earlier in this conversation"/>
+                        <!-- Tags: one compact chip with the first tag and the count of others; all tags are in the reader. -->
+                        <Border DockPanel.Dock="Right" Background="{DynamicResource SubtleBrush}" CornerRadius="8" Padding="6,0" Margin="6,0,0,0" VerticalAlignment="Center"
+                                MaxWidth="140" Visibility="{Binding HasTags, Converter={StaticResource BoolVis}}" ToolTip="{Binding TagSummary}">
+                          <TextBlock Text="{Binding TagSummary}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
+                        </Border>
                         <TextBlock TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                    Style="{StaticResource UnreadText}" ToolTip="{Binding SubjectLabel}">
                           <Run Text="{Binding SubjectLabel, Mode=OneWay}"/><Run Text="{Binding SnippetSuffix, Mode=OneWay}" FontWeight="Normal" Foreground="{DynamicResource MutedBrush}"/>
@@ -803,7 +810,23 @@
                 <DockPanel Margin="46,6,0,0">
                   <Button DockPanel.Dock="Right" Style="{StaticResource ColumnHeaderButton}" FontSize="12" Click="ReaderDetails_Click" VerticalAlignment="Top"
                           Content="{Binding ReaderDetailsLabel}" AutomationProperties.Name="{Binding ReaderDetailsLabel, StringFormat='{}{0}: recipients, account, date and storage'}"/>
+                  <Button DockPanel.Dock="Right" Style="{StaticResource ColumnHeaderButton}" FontSize="12" Click="ReaderTags_Click" VerticalAlignment="Top" Margin="0,0,12,0"
+                          Content="Tags" AutomationProperties.Name="Tags of this message" ToolTip="Add or remove tags"/>
                   <StackPanel>
+                    <ItemsControl ItemsSource="{Binding ReaderTags}" AutomationProperties.Name="Tags" Focusable="False" Margin="0,0,0,2"
+                                  Visibility="{Binding HasReaderTags, Converter={StaticResource BoolVis}}">
+                      <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border Background="{DynamicResource SubtleBrush}" CornerRadius="10" Padding="8,1" Margin="0,0,6,2" AutomationProperties.Name="{Binding AccessName}">
+                            <StackPanel Orientation="Horizontal">
+                              <Ellipse Width="8" Height="8" Fill="{Binding Dot}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                              <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"/>
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <TextBlock Text="{Binding ReaderTo}" Foreground="{DynamicResource MutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding ReaderTo}"
                                Visibility="{Binding HasReaderTo, Converter={StaticResource BoolVis}}"/>
                     <TextBlock Foreground="{DynamicResource MutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding ReaderDateFull}">
@@ -987,9 +1010,14 @@
                                     AutomationProperties.Name="{Binding Subject, StringFormat='Meeting notes for {0}'}" ToolTip="Open or start this meeting's notes">
                               <StackPanel Orientation="Horizontal"><ui:Alondra1Icon Kind="Notes" IconSize="15" Margin="0,0,6,0"/><TextBlock Text="Meeting notes"/></StackPanel>
                             </Button>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource QuietButton}" VerticalAlignment="Center" Click="EventTags_Click"
+                                    AutomationProperties.Name="{Binding Subject, StringFormat='Tags of {0}'}" ToolTip="Add or remove tags (kept on this PC)">
+                              <StackPanel Orientation="Horizontal"><ui:Alondra1Icon Kind="Tag" IconSize="15" Margin="0,0,6,0"/><TextBlock Text="Tags"/></StackPanel>
+                            </Button>
                             <StackPanel VerticalAlignment="Center">
                               <TextBlock Text="{Binding Subject}" TextWrapping="Wrap"/>
                               <TextBlock Text="{Binding Time}" Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
+                              <TextBlock Text="{Binding TagText}" Foreground="{DynamicResource MutedBrush}" FontSize="12" Visibility="{Binding HasTags, Converter={StaticResource BoolVis}}"/>
                             </StackPanel>
                           </DockPanel>
                         </DataTemplate>

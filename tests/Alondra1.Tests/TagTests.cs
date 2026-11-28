@@ -167,3 +167,31 @@ public sealed class TagTests : IAsyncDisposable
         await Assert.ThrowsAsync<TagException>(() => _tags.SetTagsAsync(TagRules.Note, ["x"], ["deleted-tag"]));
     }
 }
+
+public sealed class TagPruneTests : IAsyncDisposable
+{
+    private SqliteTaskStore? _store;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_store is not null)
+            await _store.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LinksOfItemsThatNoLongerExistArePruned()
+    {
+        var dir = Directory.CreateTempSubdirectory("alondra1-tags-").FullName;
+        _store = new SqliteTaskStore(Path.Combine(dir, "todo.db"));
+        await _store.InitializeAsync();
+        var tags = new TagBoard(_store, new FixedClock(new DateTimeOffset(2026, 11, 28, 9, 0, 0, TimeSpan.Zero)));
+        await tags.LoadAsync();
+        var t = await tags.CreateAsync("Home");
+        await tags.SetTagsAsync(TagRules.Task, ["keep", "gone"], [t.Id]);
+        await tags.SetTagsAsync(TagRules.Note, ["gone"], [t.Id]);
+        Assert.Equal(1, await tags.PruneAsync(TagRules.Task, new HashSet<string> { "keep" }));
+        Assert.Equal(["keep"], tags.ItemsWith(TagRules.Task, [t.Id]));
+        Assert.Single(tags.ItemsWith(TagRules.Note, [t.Id])); // other types untouched
+        Assert.Equal(0, await tags.PruneAsync(TagRules.Task, new HashSet<string> { "keep" }));
+    }
+}

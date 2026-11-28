@@ -40,6 +40,18 @@ public sealed partial class TodoViewModel : ObservableObject
         _toastTimer.Tick += (_, _) => { _toastTimer.Stop(); ToastText = ""; OnPropertyChanged(nameof(ToastText)); OnPropertyChanged(nameof(HasToast)); };
         if (_board is not null)
             _board.Changed += () => Refresh();
+        if (services.Tags is { } tags)
+        {
+            tags.Changed += () =>
+            {
+                if (TagFilterId is { } id && tags.Find(id) is null)
+                    TagFilterId = null; // the filtered tag was deleted: show everything again
+                OnPropertyChanged(nameof(TagFilterOptions));
+                OnPropertyChanged(nameof(TagFilterIndex));
+                if (_board is not null)
+                    Refresh();
+            };
+        }
         // Upload states change while syncing without a task change: refresh the open details then.
         if (services.CloudSync is { } engine)
             engine.StatusChanged += s => { if (_detailId is not null && s.State is not Alondra1.Core.Cloud.SyncState.Syncing) RebuildDetail(); };
@@ -480,7 +492,14 @@ public sealed partial class TodoViewModel : ObservableObject
             tasks = tasks.OrderBy(task => task.Completed).ToList();
 
         var accents = board.Lists.ToDictionary(list => list.Id, list => TodoFormat.Brush(list.Color));
-        var rows = tasks.Select(task => new TaskItemVm(task, board.ListName(task.ListId), accents.GetValueOrDefault(task.ListId), today, showList)).ToList();
+        if (TagFilterId is { } tagFilter && _services.Tags is { } tagBoard)
+        {
+            var tagged = tagBoard.ItemsWith(Alondra1.Core.Tags.TagRules.Task, [tagFilter]);
+            tasks = tasks.Where(task => tagged.Contains(task.Id)).ToList();
+        }
+
+        var rows = tasks.Select(task => new TaskItemVm(task, board.ListName(task.ListId), accents.GetValueOrDefault(task.ListId), today, showList,
+            _services.Tags is { } tagsForRow ? Alondra1.App.Tags.TagUi.Summary(tagsForRow.TagsOf(Alondra1.Core.Tags.TagRules.Task, task.Id)) : "")).ToList();
         // Rows are rebuilt after every change. The view keeps the selection, keyboard focus, and details pane across it.
         ItemsRebuilding?.Invoke();
         IsRebuilding = true;
@@ -582,6 +601,14 @@ public sealed partial class TodoViewModel : ObservableObject
         }
 
         var today = Today;
+        DetailTags.Clear();
+        if (_services.Tags is { } detailTags)
+        {
+            foreach (var chip in Alondra1.App.Tags.TagUi.Chips(detailTags.TagsOf(Alondra1.Core.Tags.TagRules.Task, task.Id)))
+                DetailTags.Add(chip);
+        }
+
+        OnPropertyChanged(nameof(HasDetailTags));
         if (!_titleDirty)
             DetailTitle = task.Title;
         if (!_notesDirty)
@@ -1192,6 +1219,33 @@ public sealed partial class TodoViewModel : ObservableObject
         _prefs.SortDescendingByView[CurrentKey] = SortDescending;
         SavePrefs();
         OnPropertyChanged(nameof(SortDescending));
+        RebuildItems();
+    }
+
+    // ---------- Tags ----------
+
+    /// <summary>The tag board (null when todo.db could not be opened).</summary>
+    public Alondra1.Core.Tags.TagBoard? Tags => _services.Tags;
+
+    /// <summary>Tags on the open task, as chips.</summary>
+    public ObservableCollection<Alondra1.App.Tags.TagChip> DetailTags { get; } = [];
+    public bool HasDetailTags => DetailTags.Count > 0;
+
+    /// <summary>Only tasks with this tag (null: no tag filter). Not saved: a tag filter is a quick look, not a view.</summary>
+    public string? TagFilterId { get; private set; }
+
+    /// <summary>The tag filter choices: "All tags" then every tag by name.</summary>
+    public IReadOnlyList<string> TagFilterOptions => ["All tags", .. (_services.Tags?.Tags.Select(t => t.Name) ?? [])];
+    public int TagFilterIndex => TagFilterId is { } id && _services.Tags is { } tags ? tags.Tags.ToList().FindIndex(t => t.Id == id) + 1 : 0;
+
+    public void SetTagFilter(int index)
+    {
+        var tags = _services.Tags?.Tags ?? [];
+        var next = index > 0 && index <= tags.Count ? tags[index - 1].Id : null;
+        if (next == TagFilterId)
+            return;
+        TagFilterId = next;
+        OnPropertyChanged(nameof(TagFilterIndex));
         RebuildItems();
     }
 

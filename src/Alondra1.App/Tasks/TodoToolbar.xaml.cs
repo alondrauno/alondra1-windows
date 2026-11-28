@@ -28,6 +28,12 @@ public partial class TodoToolbar : UserControl
             Model?.SetStatusFilter(StatusBox.SelectedIndex);
     }
 
+    private void TagFilterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded && TagFilterBox.SelectedIndex >= 0)
+            Model?.SetTagFilter(TagFilterBox.SelectedIndex);
+    }
+
     private void ImportantFilter_Click(object sender, RoutedEventArgs e)
     {
         if (Model is { } model)

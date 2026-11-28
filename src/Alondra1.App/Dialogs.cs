@@ -276,6 +276,11 @@ public static class Dialogs
         {
             ("Appearance", "Settings", appearance), ("Background", "Image", backgroundPage), ("Mail", "Mail", mail), ("Accounts", "Contacts", accounts),
             ("Connections", "Refresh", connections), ("Data", "Archive", data), ("Cloud", "Upload", Cloud.CloudDialogs.Page(model)),
+            ("Tags", "Tag", Tags.TagUi.ManagePage(model.TagBoard, () => window, tagId =>
+            {
+                if (model.TagBoard is { } board)
+                    Tags.TagUi.ShowItems(window, board, tagId, model.ResolveTagged);
+            }, _ => 0)),
             ("About", "Chat", about),
         };
         var grid = new Grid();

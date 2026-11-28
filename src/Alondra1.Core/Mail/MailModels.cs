@@ -93,6 +93,10 @@ public sealed class StoredMessage
     /// <summary>" — start of the message" after the subject in comfortable density; set on display, empty otherwise.</summary>
     public string SnippetSuffix { get; set; } = "";
 
+    /// <summary>The message's tags in short ("Travel +2"), set on display; empty without tags.</summary>
+    public string TagSummary { get; set; } = "";
+    public bool HasTags => TagSummary.Length > 0;
+
     public string ReceivedFull => MailColumnLayout.FullDate(ReceivedUtc);
 }
 

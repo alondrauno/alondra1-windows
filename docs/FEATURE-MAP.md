@@ -454,6 +454,21 @@ Code: `Core/Cloud/CloudSyncEngine.cs`, `Core/Notes/NotesBoard.cs` (`ResolveConfl
 
 ---
 
+## 6b. Tags (`TAG`)
+
+Code: `Alondra1.Core/Tags` (TagBoard, TagRules), `Alondra1.Persistence/SqliteTaskStore.Tags.cs` (todo.db schema 6), `Alondra1.App/Tags/TagUi.cs`; Cloud Sync in `CloudSyncEngine` (`tag`, `tag_link`). Tests: `TagTests.cs`. Spec: FEATURES_EXTENSION Part B §2.
+
+| ID | Atomic feature | Status | Notes |
+| --- | --- | --- | --- |
+| TAG-01 | One tag catalog for mail, notes, tasks and calendar events; names unique ignoring case (NFC, case-folded like the cloud), 64 characters, theme colors | Done | Settings → Tags: add, rename, color, delete (says how many items), show items. |
+| TAG-02 | Tag picker for one or many items: search, tick, create from typed text; mixed state for a selection; only changed tags are applied | Done | Mail list context menu and reader "Tags"; task context menu and detail pane; note context menu and header; calendar agenda "Tags". |
+| TAG-03 | Chips: compact summary on rows ("Travel +2"), all tags in reader, task details, note header, agenda | Done | Color dot is supplemental; the name is always shown. |
+| TAG-04 | Filters: mail filter menu → Tag; To-do toolbar tag box; Notes sidebar Tags section | Done | A deleted tag clears its filter. |
+| TAG-05 | Cross-module view of a tag (Mail, Notes, To Do, Calendar) with open actions | Done | Settings → Tags → Show items; items not on this PC are listed as such. |
+| TAG-06 | Mail references hash account + Message-ID (follow moves; the cloud never sees ids); without Message-ID, account + folder + uid | Done | `TagRules.MailRef`. |
+| TAG-07 | Cloud Sync of tags and links; account calendar events' tags stay on this PC; offline duplicate names merge into the cloud's tag | Done | |
+| TAG-08 | Deleting a task or note (for good) removes its tags; deleting a tag never deletes items | Done | `TagBoard.PruneAsync`, `DeleteAsync`. |
+
 ## 6. Contacts (`CONT`)
 
 Code: `Providers/OrganizerGateway.cs` (`ListContactsAsync`), `App/ViewModels/MainViewModel.cs` (`VisibleContacts`).

@@ -130,6 +130,8 @@
                       <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
                     <TextBlock Text="{Binding Preview}" Foreground="{DynamicResource MutedBrush}" FontSize="12" TextTrimming="CharacterEllipsis" MaxHeight="34" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                    <TextBlock Text="{Binding TagText}" Foreground="{DynamicResource MutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"
+                               Visibility="{Binding HasTags, Converter={StaticResource BoolVis}}"/>
                   </StackPanel>
                   <Border Grid.Column="1" Width="44" Height="44" CornerRadius="6" Margin="8,0,0,0" ClipToBounds="True"
                           Visibility="{Binding Thumbnail, Converter={StaticResource NotNullVis}}">
@@ -153,6 +155,9 @@
               <ui:Alondra1Icon Kind="Layout" IconSize="16"/>
             </Button>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Visibility="{Binding HasNote, Converter={StaticResource BoolVis}}">
+              <Button Style="{StaticResource QuietButton}" Click="NoteTags_Click" AutomationProperties.Name="Tags of this note" ToolTip="Add or remove tags">
+                <StackPanel Orientation="Horizontal"><ui:Alondra1Icon Kind="Tag" IconSize="15" Margin="0,0,6,0"/><TextBlock Text="Tags"/></StackPanel>
+              </Button>
               <Button Style="{StaticResource QuietButton}" Click="Link_Click" AutomationProperties.Name="Link this note to an event, contact or task" ToolTip="Link to an event, contact or task">
                 <StackPanel Orientation="Horizontal"><ui:Alondra1Icon Kind="Attachment" IconSize="15" Margin="0,0,6,0"/><TextBlock Text="Link"/></StackPanel>
                 <Button.ContextMenu><ContextMenu/></Button.ContextMenu>
@@ -162,6 +167,20 @@
                 <Button.ContextMenu><ContextMenu/></Button.ContextMenu>
               </Button>
             </StackPanel>
+            <!-- Tags of the open note (manage them with the Tags button). -->
+            <ItemsControl DockPanel.Dock="Left" ItemsSource="{Binding NoteTags}" VerticalAlignment="Center" Margin="6,0,0,0" AutomationProperties.Name="Tags" Focusable="False">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="{DynamicResource SubtleBrush}" CornerRadius="10" Padding="8,2" Margin="0,2,6,2" AutomationProperties.Name="{Binding AccessName}">
+                    <StackPanel Orientation="Horizontal">
+                      <Ellipse Width="8" Height="8" Fill="{Binding Dot}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                      <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
             <!-- Linked objects: click to open; the x removes the link (the object itself is not changed). -->
             <ItemsControl ItemsSource="{Binding Links}" VerticalAlignment="Center" Margin="6,0" AutomationProperties.Name="Linked items">
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>

@@ -427,6 +427,12 @@ public partial class TodoView : UserControl
         }
     }
 
+    private void EditTags_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is { DetailId: { } id, Tags: { } tags })
+            _ = Alondra1.App.Tags.TagUi.PickAsync(Window.GetWindow(this), tags, Alondra1.Core.Tags.TagRules.Task, [id], "Tags for this task");
+    }
+
     private List<string> SelectedTaskIds() => TaskList.SelectedItems.OfType<TaskItemVm>().Select(item => item.Id).ToList();
 
     private void SelectTaskRow(string id)
@@ -486,6 +492,8 @@ public partial class TodoView : UserControl
         menu.Items.Add(Menu(allDone ? "Mark as not completed" : "Mark as completed", () => _ = model.CompleteAsync(ids, !allDone), "Ctrl+Enter"));
         menu.Items.Add(Menu(allImportant ? "Remove importance" : "Mark as important", () => _ = model.SetImportantAsync(ids, !allImportant), "Ctrl+I"));
         menu.Items.Add(Menu(allMyDay ? "Remove from My Day" : "Add to My Day", () => _ = model.ToggleMyDayAsync(ids), "Ctrl+T"));
+        if (model.Tags is { } tags)
+            menu.Items.Add(Menu("Tags…", () => _ = Alondra1.App.Tags.TagUi.PickAsync(Window.GetWindow(this), tags, Alondra1.Core.Tags.TagRules.Task, ids, ids.Count == 1 ? "Tags for this task" : $"Tags for {ids.Count} tasks")));
         menu.Items.Add(new Separator());
         menu.Items.Add(Menu("Due today", () => _ = model.SetDueAsync(ids, model.Today)));
         menu.Items.Add(Menu("Due tomorrow", () => _ = model.SetDueAsync(ids, model.Today.AddDays(1))));

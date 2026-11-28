@@ -19,12 +19,13 @@ public sealed record MailListFilter(
     string? Subject = null,
     DateOnly? Since = null,
     DateOnly? Until = null,
-    string? AttachmentName = null)
+    string? AttachmentName = null,
+    string? TagId = null)
 {
     public static readonly MailListFilter None = new();
 
     public bool IsActive => Unread || Flagged || Attachments || AccountId is not null || HasText(Sender) || HasText(Recipient)
-        || HasText(Subject) || Since is not null || Until is not null || HasText(AttachmentName);
+        || HasText(Subject) || Since is not null || Until is not null || HasText(AttachmentName) || TagId is not null;
 
     /// <summary>Blank text fields become null, and a reversed date range is put in order.</summary>
     public MailListFilter Normalized()
@@ -46,8 +47,11 @@ public static class MailListView
     /// True when the message passes every filter. <paramref name="attachmentMatches"/> lists the messages with an
     /// attachment whose name matches <see cref="MailListFilter.AttachmentName"/>; without it, that filter matches nothing.
     /// </summary>
-    public static bool Matches(StoredMessage m, MailListFilter f, IReadOnlySet<MessageKey>? attachmentMatches = null)
+    public static bool Matches(StoredMessage m, MailListFilter f, IReadOnlySet<MessageKey>? attachmentMatches = null, IReadOnlySet<string>? taggedRefs = null)
     {
+        // A tag filter needs the tagged messages (by their tag reference); without them it matches nothing.
+        if (f.TagId is not null && (taggedRefs is null || !taggedRefs.Contains(Alondra1.Core.Tags.TagRules.MailRef(m.AccountId, m.MessageId, m.FolderId, m.Uid))))
+            return false;
         if ((f.Unread && !m.IsUnread) || (f.Flagged && !m.IsFlagged) || (f.Attachments && !m.HasAttachments)
             || (f.AccountId is not null && m.AccountId != f.AccountId))
             return false;
@@ -73,9 +77,9 @@ public static class MailListView
 
     /// <summary>Filters and sorts with a stable tie-break (date, account, folder, uid), so equal rows never swap places.</summary>
     public static List<StoredMessage> Apply(IEnumerable<StoredMessage> messages, MailListFilter filter, MailSortField sort, bool descending,
-        IReadOnlySet<MessageKey>? attachmentMatches = null)
+        IReadOnlySet<MessageKey>? attachmentMatches = null, IReadOnlySet<string>? taggedRefs = null)
     {
-        var rows = messages.Where(m => Matches(m, filter, attachmentMatches));
+        var rows = messages.Where(m => Matches(m, filter, attachmentMatches, taggedRefs));
         IOrderedEnumerable<StoredMessage> ordered = sort switch
         {
             MailSortField.From => descending
@@ -152,7 +156,7 @@ public static class MailListView
     };
 
     /// <summary>The active filters as removable chips.</summary>
-    public static IReadOnlyList<MailFilterChip> Chips(MailListFilter f, Func<string, string> accountName)
+    public static IReadOnlyList<MailFilterChip> Chips(MailListFilter f, Func<string, string> accountName, Func<string, string>? tagName = null)
     {
         var chips = new List<MailFilterChip>();
         if (f.Unread)
@@ -173,6 +177,8 @@ public static class MailListView
             chips.Add(new(DateRangeLabel(f.Since, f.Until), f with { Since = null, Until = null }));
         if (MailListFilter.HasText(f.AttachmentName))
             chips.Add(new($"Attachment: {f.AttachmentName}", f with { AttachmentName = null }));
+        if (f.TagId is { } tag)
+            chips.Add(new($"Tag: {tagName?.Invoke(tag) ?? "tag"}", f with { TagId = null }));
         return chips;
     }
 
@@ -191,8 +197,8 @@ public static class MailListView
     }
 
     /// <summary>A short description of the active filters for search coverage ("Unread, From: maya").</summary>
-    public static string Describe(MailListFilter f, Func<string, string> accountName) =>
-        string.Join(", ", Chips(f, accountName).Select(c => c.Label));
+    public static string Describe(MailListFilter f, Func<string, string> accountName, Func<string, string>? tagName = null) =>
+        string.Join(", ", Chips(f, accountName, tagName).Select(c => c.Label));
 
     /// <summary>The quick date ranges offered in the filter menu, relative to <paramref name="today"/>.</summary>
     public static IReadOnlyList<(string Label, DateOnly Since, DateOnly Until)> QuickRanges(DateOnly today) =>

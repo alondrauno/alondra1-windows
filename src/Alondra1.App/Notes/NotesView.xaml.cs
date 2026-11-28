@@ -72,6 +72,12 @@ public partial class NotesView : UserControl
     public Task<System.Windows.Media.Imaging.BitmapSource?> CaptureEditorAsync() => Editor.CaptureAsync();
     private Window Owner => Window.GetWindow(this);
 
+    private void NoteTags_Click(object sender, RoutedEventArgs e)
+    {
+        if (Model is { SelectedId: { } id, Tags: { } tags })
+            _ = Alondra1.App.Tags.TagUi.PickAsync(Window.GetWindow(this), tags, Alondra1.Core.Tags.TagRules.Note, [id], "Tags for this note");
+    }
+
     private List<string> SelectedIds() => NoteList.SelectedItems.OfType<NoteItem>().Select(i => i.Id).ToList();
 
     // ---------------------------------------------------------------- layout
@@ -257,6 +263,8 @@ public partial class NotesView : UserControl
                 : Item("Pin to top", "Promote", () => _ = Run(() => model.PinAsync(ids, true))));
             if (ids.Count == 1)
                 menu.Items.Add(Item("Duplicate", "Copy", () => _ = Run(() => model.DuplicateAsync(ids[0]))));
+            if (model.Tags is { } tags)
+                menu.Items.Add(Item("Tags…", "Tag", () => _ = Alondra1.App.Tags.TagUi.PickAsync(Window.GetWindow(this), tags, Alondra1.Core.Tags.TagRules.Note, ids, ids.Count == 1 ? "Tags for this note" : $"Tags for {ids.Count} notes")));
             var move = new MenuItem { Header = "Move to", Icon = new Controls.Alondra1Icon { Kind = "Move", IconSize = 16 } };
             move.Items.Add(Item("No folder", "Notes", () => _ = Run(() => model.MoveAsync(ids, null))));
             foreach (var f in board.Folders)

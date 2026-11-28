@@ -206,6 +206,25 @@ public sealed class TagBoard(ITagStore store, IClock clock)
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Removes the links of items of a type that no longer exist on this PC (deleted here or by sync). Links of synced
+    /// types are dropped locally only: the cloud deletes its copies with the item. Returns how many were removed.
+    /// </summary>
+    public async Task<int> PruneAsync(string objectType, IReadOnlySet<string> existing)
+    {
+        var gone = _links.Values.Where(l => l.ObjectType == objectType && !existing.Contains(l.ObjectRef)).ToList();
+        if (gone.Count == 0)
+            return 0;
+        var changes = new TagChangeSet();
+        foreach (var l in gone)
+            (TagRules.IsSynced(l) ? changes.DropLinks : changes.DeleteLinks).Add(l.Id);
+        await store.ApplyTagsAsync(changes, CancellationToken.None).ConfigureAwait(true);
+        foreach (var l in gone)
+            _links.Remove(l.Id);
+        Changed?.Invoke();
+        return gone.Count;
+    }
+
     private async Task ApplyLinksAsync(TagChangeSet changes)
     {
         if (changes.IsEmpty)

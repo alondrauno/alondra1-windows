@@ -12,8 +12,10 @@ using Alondra1.Core.Notes;
 namespace Alondra1.App.Notes;
 
 /// <summary>A row of the Notes sidebar: a view (All, Favorites, Archive, Trash) or a folder.</summary>
-public sealed class NoteNavItem(string key, string label, string icon, NoteView view, string? folderId = null, int indent = 0)
+public sealed class NoteNavItem(string key, string label, string icon, NoteView view, string? folderId = null, int indent = 0, string? tagId = null)
 {
+    /// <summary>A tag in the sidebar's Tags section: the list shows the notes with this tag.</summary>
+    public string? TagId { get; } = tagId;
     public string Key { get; } = key;
     public string Label { get; } = label;
     public string Icon { get; } = icon;
@@ -27,8 +29,11 @@ public sealed class NoteNavItem(string key, string label, string icon, NoteView 
 }
 
 /// <summary>A row of the note list (no document loaded).</summary>
-public sealed class NoteItem(NoteSummary s, string? thumbnail)
+public sealed class NoteItem(NoteSummary s, string? thumbnail, string tagText = "")
 {
+    /// <summary>The note's tags in short ("#Travel +1"), or empty.</summary>
+    public string TagText { get; } = tagText.Length > 0 ? "#" + tagText : "";
+    public bool HasTags => TagText.Length > 0;
     public string Id { get; } = s.Id;
     public string Title { get; } = s.DisplayTitle;
     public string Preview { get; } = s.Preview;
@@ -76,6 +81,17 @@ public sealed partial class NotesViewModel : ObservableObject
         _services = services;
         Host = host;
         _board = services.NotesBoard;
+        if (services.Tags is { } tags)
+        {
+            tags.Changed += () =>
+            {
+                if (TagId is { } id && tags.Find(id) is null)
+                    TagId = null; // the tag shown was deleted
+                Refresh();
+                RefreshNoteTags();
+            };
+        }
+
         if (_board is not null)
         {
             _board.Changed += Refresh;
@@ -116,6 +132,7 @@ public sealed partial class NotesViewModel : ObservableObject
         NoteView.Archive => "Archive",
         NoteView.Trash => "Trash",
         NoteView.Folder => _board?.FindFolder(FolderId ?? "")?.Name ?? "Folder",
+        _ when TagId is { } tag => "#" + (_services.Tags?.Find(tag)?.Name ?? "Tag"),
         _ => "All notes",
     };
 
@@ -136,7 +153,7 @@ public sealed partial class NotesViewModel : ObservableObject
     {
         if (_board is null)
             return;
-        var selectedKey = View == NoteView.Folder ? "f:" + FolderId : View.ToString();
+        var selectedKey = TagId is not null ? "t:" + TagId : View == NoteView.Folder ? "f:" + FolderId : View.ToString();
         Sidebar.Clear();
         void Add(NoteNavItem item)
         {
@@ -159,6 +176,15 @@ public sealed partial class NotesViewModel : ObservableObject
         Folders(null, 0);
         Add(new NoteNavItem(nameof(NoteView.Archive), "Archive", "Archive", NoteView.Archive));
         Add(new NoteNavItem(nameof(NoteView.Trash), "Trash", "Delete", NoteView.Trash));
+        // Tags: the same tags as on mail, tasks and events; each shows the notes carrying it.
+        if (_services.Tags is { } tagBoard)
+        {
+            foreach (var tag in tagBoard.Tags)
+            {
+                var tagged = tagBoard.ItemsWith(Alondra1.Core.Tags.TagRules.Note, [tag.Id]);
+                Sidebar.Add(new NoteNavItem("t:" + tag.Id, tag.Name, "Tag", NoteView.All, null, 0, tag.Id) { Count = _board.Query(NoteView.All, null, tagged).Count });
+            }
+        }
         if (View == NoteView.Folder && (FolderId is null || _board.FindFolder(FolderId) is null))
         {
             View = NoteView.All;
@@ -166,9 +192,20 @@ public sealed partial class NotesViewModel : ObservableObject
         }
 
         Items.Clear();
-        foreach (var s in _board.Query(View, FolderId, _searchIds, Sort, Descending))
-            Items.Add(new NoteItem(s, s.FirstAsset is { } a && Assets?.HasFile(a) == true ? Assets.PathOf(a) : null));
-        SelectedNavKey = View == NoteView.Folder ? "f:" + FolderId : View.ToString();
+        IReadOnlyCollection<string>? only = _searchIds;
+        if (TagId is { } tagId && _services.Tags is { } tagFilter)
+        {
+            var tagged = tagFilter.ItemsWith(Alondra1.Core.Tags.TagRules.Note, [tagId]);
+            only = only is null ? tagged : only.Where(tagged.Contains).ToList();
+        }
+
+        foreach (var s in _board.Query(View, FolderId, only, Sort, Descending))
+        {
+            var tagText = _services.Tags is { } t ? Alondra1.App.Tags.TagUi.Summary(t.TagsOf(Alondra1.Core.Tags.TagRules.Note, s.Id)) : "";
+            Items.Add(new NoteItem(s, s.FirstAsset is { } a && Assets?.HasFile(a) == true ? Assets.PathOf(a) : null, tagText));
+        }
+
+        SelectedNavKey = TagId is not null ? "t:" + TagId : View == NoteView.Folder ? "f:" + FolderId : View.ToString();
         _ = selectedKey;
         Raise();
     }
@@ -183,11 +220,32 @@ public sealed partial class NotesViewModel : ObservableObject
 
     public void SelectNav(NoteNavItem? item)
     {
-        if (item is null || (item.View == View && item.FolderId == FolderId))
+        if (item is null || (item.View == View && item.FolderId == FolderId && item.TagId == TagId))
             return;
         View = item.View;
         FolderId = item.FolderId;
+        TagId = item.TagId;
         Refresh();
+    }
+
+    // ------------------------------------------------------------------ tags
+
+    /// <summary>The tag whose notes are shown (from the sidebar's Tags section), or null.</summary>
+    public string? TagId { get; private set; }
+
+    public Alondra1.Core.Tags.TagBoard? Tags => _services.Tags;
+
+    /// <summary>Tags on the open note, as chips in its header.</summary>
+    public ObservableCollection<Alondra1.App.Tags.TagChip> NoteTags { get; } = [];
+
+    public void RefreshNoteTags()
+    {
+        NoteTags.Clear();
+        if (_openId is { } id && _services.Tags is { } tags)
+        {
+            foreach (var chip in Alondra1.App.Tags.TagUi.Chips(tags.TagsOf(Alondra1.Core.Tags.TagRules.Note, id)))
+                NoteTags.Add(chip);
+        }
     }
 
     public void ApplySearch(string? text)
@@ -257,6 +315,7 @@ public sealed partial class NotesViewModel : ObservableObject
         try
         {
             _openId = id;
+            RefreshNoteTags();
             var note = id is null ? null : await _board.GetAsync(id);
             Links.Clear();
             foreach (var link in note?.Links ?? [])

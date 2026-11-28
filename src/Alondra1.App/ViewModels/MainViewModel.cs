@@ -64,6 +64,15 @@ public sealed partial class MainViewModel : ObservableObject
         Cloud = new Alondra1.App.Cloud.CloudController(services);
         Todo = new Alondra1.App.Tasks.TodoViewModel(services, this);
         Notes = new Alondra1.App.Notes.NotesViewModel(services, this);
+        if (services.Tags is { } tagBoard)
+        {
+            tagBoard.Changed += OnTagsChanged;
+            // A deleted task or note takes its tags along (trashed notes keep them until deleted for good).
+            if (services.Tasks is { } taskBoard)
+                taskBoard.Changed += () => _ = tagBoard.PruneAsync(Alondra1.Core.Tags.TagRules.Task, taskBoard.Tasks.Select(t => t.Id).ToHashSet());
+            if (services.NotesBoard is { } noteBoard)
+                noteBoard.Changed += () => _ = tagBoard.PruneAsync(Alondra1.Core.Tags.TagRules.Note, noteBoard.Notes.Select(n => n.Id).ToHashSet());
+        }
         Search = new GlobalSearchViewModel(CreateSearchSource, () => ScopeTitle,
             SearchScopes.ParseReach(services.Config.Layout.SearchReach), reach =>
             {
@@ -385,7 +394,7 @@ public sealed partial class MainViewModel : ObservableObject
             filter = filter with { AccountId = null };
         Filter = filter;
         FilterChips.Clear();
-        foreach (var chip in MailListView.Chips(filter, AccountLabel))
+        foreach (var chip in MailListView.Chips(filter, AccountLabel, TagName))
             FilterChips.Add(chip);
         OnPropertyChanged(nameof(Filter));
         OnPropertyChanged(nameof(HasFilter));
@@ -1408,7 +1417,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         // One list across accounts, filtered and sorted; ties broken by account, folder and uid so the order is stable.
-        var found = MailListView.Apply(list, Filter, Sort, SortDescending, attachments);
+        var found = MailListView.Apply(list, Filter, Sort, SortDescending, attachments, TaggedMail());
         _unfilteredTotal = total;
         Publish(found);
     }
@@ -1428,6 +1437,7 @@ public sealed partial class MainViewModel : ObservableObject
             message.TimeLabel = MailColumnLayout.TimeLabel(message.ReceivedUtc, now);
             message.DateGroup = MailListView.DateGroup(message.ReceivedUtc, now);
             message.SnippetSuffix = ShowSnippets ? MailListView.Snippet(message.Preview) : "";
+            message.TagSummary = TagSummaryOf(message);
             if (names.TryGetValue(message.AccountId, out var name))
                 message.AccountName = name;
         }
@@ -1569,6 +1579,99 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _selection = selection;
         SetSelectionCount(selection.Count);
+    }
+
+    // ---------- Tags on mail (FEATURES_EXTENSION Part B §2) ----------
+
+    /// <summary>The tag board (null when todo.db could not be opened).</summary>
+    public Alondra1.Core.Tags.TagBoard? TagBoard => _services.Tags;
+
+    /// <summary>A message's tag reference: account + Message-ID, so its tags follow it between folders.</summary>
+    public static string MailRef(StoredMessage m) => Alondra1.Core.Tags.TagRules.MailRef(m.AccountId, m.MessageId, m.FolderId, m.Uid);
+
+    /// <summary>Where these messages are on this PC (so the Tags view can open them again).</summary>
+    public static IEnumerable<Alondra1.Core.Tags.MailTagTarget> MailTargets(IEnumerable<StoredMessage> messages) =>
+        messages.Select(m => new Alondra1.Core.Tags.MailTagTarget(MailRef(m), m.AccountId, m.FolderId, m.Uid, m.SubjectLabel, m.ReceivedUtc));
+
+    /// <summary>The messages a list action applies to: the selection, or the open message.</summary>
+    public IReadOnlyList<StoredMessage> SelectedMessages() => ActionTargets();
+
+    /// <summary>Tags on the open message, as chips in the reader header.</summary>
+    public ObservableCollection<Alondra1.App.Tags.TagChip> ReaderTags { get; } = [];
+    public bool HasReaderTags => ReaderTags.Count > 0;
+
+    private string TagName(string id) => _services.Tags?.Find(id)?.Name ?? "deleted tag";
+
+    /// <summary>A calendar event's tag reference (account events are identified within their account).</summary>
+    public static string EventRef(CalendarEntry e) => Alondra1.Core.Tags.TagRules.MailRef(e.AccountId, "event:" + e.Id, "", 0);
+
+    /// <summary>One tagged item for the Tags view: its module, title, a detail line and how to open it.</summary>
+    public Alondra1.App.Tags.TaggedItem ResolveTagged(Alondra1.Core.Tags.TagLink link)
+    {
+        switch (link.ObjectType)
+        {
+            case Alondra1.Core.Tags.TagRules.Mail:
+                if (_services.Tags?.MailTarget(link.ObjectRef) is not { } target || MailAccounts.All(a => a.Id != target.AccountId))
+                    return new("Mail", "A message that isn't on this PC", "It was tagged on another computer, or its account was removed.", null);
+                var account = MailAccounts.First(a => a.Id == target.AccountId);
+                return new("Mail", target.Subject, $"{ComposeIdentity.Label(account)} · {target.ReceivedUtc.ToLocalTime():d MMM yyyy}",
+                    () => _ = OpenSearchHitAsync(new SearchHit(SearchModule.Mail, link.ObjectRef, target.Subject, "", "", target.ReceivedUtc, target.AccountId, target.FolderId, target.Uid)));
+            case Alondra1.Core.Tags.TagRules.Note:
+                return Notes.Board?.Find(link.ObjectRef) is { } note
+                    ? new("Notes", note.DisplayTitle, Notes.Board.FolderName(note.FolderId), () => _ = OpenSearchHitAsync(new SearchHit(SearchModule.Notes, note.Id, note.DisplayTitle, "", "", null)))
+                    : new("Notes", "A note that isn't on this PC", "", null);
+            case Alondra1.Core.Tags.TagRules.Task:
+                return Todo.Board?.FindTask(link.ObjectRef) is { } task
+                    ? new("To Do", task.Title, Todo.Board.ListName(task.ListId), () => _ = OpenSearchHitAsync(new SearchHit(SearchModule.Todo, task.Id, task.Title, "", "", null)))
+                    : new("To Do", "A task that isn't on this PC", "", null);
+            default:
+                return _events.FirstOrDefault(e => EventRef(e) == link.ObjectRef) is { } ev
+                    ? new("Calendar", ev.Subject, ev.Start.ToLocalTime().ToString("ddd d MMM yyyy, HH:mm", System.Globalization.CultureInfo.CurrentCulture),
+                        () => _ = OpenSearchHitAsync(new SearchHit(SearchModule.Calendar, ev.Id, ev.Subject, "", "", ev.Start)))
+                    : new("Calendar", "An event that isn't loaded", "Open Calendar to load account events.", null);
+        }
+    }
+
+    private IReadOnlySet<string>? TaggedMail() =>
+        Filter.TagId is { } id && _services.Tags is { } tags ? tags.ItemsWith(Alondra1.Core.Tags.TagRules.Mail, [id]) : null;
+
+    private string TagSummaryOf(StoredMessage m) =>
+        _services.Tags is { } tags ? Alondra1.App.Tags.TagUi.Summary(tags.TagsOf(Alondra1.Core.Tags.TagRules.Mail, MailRef(m))) : "";
+
+    private void RefreshReaderTags()
+    {
+        ReaderTags.Clear();
+        if (SelectedMessage is { } m && _services.Tags is { } tags)
+        {
+            foreach (var chip in Alondra1.App.Tags.TagUi.Chips(tags.TagsOf(Alondra1.Core.Tags.TagRules.Mail, MailRef(m))))
+                ReaderTags.Add(chip);
+        }
+
+        OnPropertyChanged(nameof(HasReaderTags));
+    }
+
+    /// <summary>Tags changed (here, in another module, or by sync): rows, reader and a tag filter follow.</summary>
+    private void OnTagsChanged()
+    {
+        if (Filter.TagId is { } id && _services.Tags?.Find(id) is null)
+        {
+            SetFilter(Filter with { TagId = null }); // the filtered tag was deleted: never broaden silently, say so with the chips
+            return;
+        }
+
+        foreach (var message in Messages)
+        {
+            var summary = TagSummaryOf(message);
+            if (summary != message.TagSummary)
+            {
+                message.TagSummary = summary;
+                MessageStateChanged?.Invoke(message);
+            }
+        }
+
+        RefreshReaderTags();
+        if (Filter.TagId is not null)
+            _ = ReloadMessagesAsync();
     }
 
     private IReadOnlyList<StoredMessage> ActionTargets() =>
@@ -1843,6 +1946,9 @@ public sealed partial class MainViewModel : ObservableObject
             BuildCalendar();
     }
 
+    /// <summary>Rebuilds the month and the agenda (after tags of an event changed).</summary>
+    public void RefreshAgenda() => BuildCalendar();
+
     private void BuildCalendar()
     {
         Days.Clear();
@@ -1874,7 +1980,7 @@ public sealed partial class MainViewModel : ObservableObject
         AgendaText = date.ToString("ddd, MMM d") + " · " + (chosen.Count == 0 ? "No events" : chosen.Count == 1 ? "1 event" : $"{chosen.Count} events");
         AgendaEvents.Clear();
         foreach (var item in chosen.OrderBy(e => e.Start))
-            AgendaEvents.Add(new AgendaEvent(item));
+            AgendaEvents.Add(new AgendaEvent(item, _services.Tags is { } tags ? Alondra1.App.Tags.TagUi.Summary(tags.TagsOf(Alondra1.Core.Tags.TagRules.Event, EventRef(item))) : ""));
         OnPropertyChanged(nameof(MonthLabel));
         OnPropertyChanged(nameof(AgendaText));
     }
@@ -2021,7 +2127,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The local adapter of a module for the shared search. Nothing is sent to a server.</summary>
     private ISearchSource CreateSearchSource(SearchModule module) => module switch
     {
-        SearchModule.Mail => new MailSearchSource(SearchAllMailAsync, MailAccounts, () => MailListView.Describe(Filter, AccountLabel), AttachmentCoverage),
+        SearchModule.Mail => new MailSearchSource(SearchAllMailAsync, MailAccounts, () => MailListView.Describe(Filter, AccountLabel, TagName), AttachmentCoverage),
         SearchModule.Todo => new TaskSearchSource(() => Todo.Board),
         SearchModule.Notes => new NoteSearchSource(() => Notes.Board),
         SearchModule.Calendar => new CalendarSearchSource(() => _events, () => _eventsCoverage),
@@ -2073,7 +2179,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (!Filter.IsActive)
             return new MailSearchPage(found, indexTotal is { } t ? t + found.Count - indexPage : null);
         var keys = await AttachmentMatchesAsync(Filter, cancellationToken).ConfigureAwait(true);
-        return new MailSearchPage(found.Where(m => MailListView.Matches(m, Filter, keys)).ToList());
+        return new MailSearchPage(found.Where(m => MailListView.Matches(m, Filter, keys, TaggedMail())).ToList());
     }
 
     private const int SearchPageSize = 200;
@@ -2341,6 +2447,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void RaiseReader()
     {
+        RefreshReaderTags();
         OnPropertyChanged(nameof(ReadToggleLabel));
         OnPropertyChanged(nameof(ReadToggleIcon));
         OnPropertyChanged(nameof(SelectedMessage));
@@ -2470,9 +2577,12 @@ public sealed class WorkspaceChoice : ObservableObject
 public enum ConnectionState { Sample, NoAccounts, Ready, Syncing, Offline, Error }
 
 /// <summary>An event in the Calendar's day list.</summary>
-public sealed class AgendaEvent(CalendarEntry entry)
+public sealed class AgendaEvent(CalendarEntry entry, string tagText = "")
 {
     public CalendarEntry Entry { get; } = entry;
+    /// <summary>The event's tags in short ("#Travel +1"); kept on this PC (account events are not synced).</summary>
+    public string TagText { get; } = tagText.Length > 0 ? "#" + tagText : "";
+    public bool HasTags => TagText.Length > 0;
     public string Subject => string.IsNullOrWhiteSpace(Entry.Subject) ? "(No title)" : Entry.Subject;
     public string Time => $"{Entry.Start.ToLocalTime():HH:mm}–{Entry.End.ToLocalTime():HH:mm}" + (string.IsNullOrEmpty(Entry.AccountName) ? "" : " · " + Entry.AccountName);
     /// <summary>Date and time as written at the top of the meeting notes.</summary>

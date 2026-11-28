@@ -175,6 +175,8 @@ public partial class MainWindow : Window
         if (App.Services.Tasks is { } board && _model.IsDemo && board.Tasks.Count == 0)
             await Alondra1.App.Tasks.TodoSamples.SeedAsync(board);
         await todo.InitializeAsync();
+        if (_model.IsDemo && _model.TagBoard is { } tags)
+            await Alondra1.App.Tags.TagSamples.SeedAsync(tags, App.Services.Tasks, App.Services.NotesBoard);
         _reminders = new Alondra1.App.Tasks.ReminderNotifier(todo);
         _reminders.Start();
         Closed += (_, _) => _reminders?.Dispose();
@@ -380,6 +382,7 @@ public partial class MainWindow : Window
                 "settings" => () => Dialogs.ShowSettings(this, _model),
                 "background" => () => Dialogs.ShowSettings(this, _model, 1),
                 "mail" => () => Dialogs.ShowSettings(this, _model, 2),
+                "tags" => () => Dialogs.ShowSettings(this, _model, 7),
                 "filters" => () => Dialogs.ShowMailFilters(this, _model),
                 "account" => () => Dialogs.ShowAccount(this, _model, null),
                 "welcome" => () => Dialogs.ShowWelcome(this, _model),
@@ -902,6 +905,24 @@ public partial class MainWindow : Window
                 Toggle(ComposeIdentity.Label(account), f.AccountId == account.Id, f with { AccountId = account.Id });
         }
 
+        if (_model.TagBoard is { Tags.Count: > 0 } tagBoard)
+        {
+            var tagMenu = new MenuItem { Header = "Tag" };
+            var anyTag = new MenuItem { Header = "Any or no tag", IsCheckable = true, IsChecked = f.TagId is null };
+            anyTag.Click += (_, _) => _model.SetFilter(f with { TagId = null });
+            tagMenu.Items.Add(anyTag);
+            foreach (var tag in tagBoard.Tags)
+            {
+                var item = new MenuItem { Header = tag.Name, IsCheckable = true, IsChecked = f.TagId == tag.Id };
+                var id = tag.Id;
+                item.Click += (_, _) => _model.SetFilter(f with { TagId = id });
+                tagMenu.Items.Add(item);
+            }
+
+            menu.Items.Add(new Separator());
+            menu.Items.Add(tagMenu);
+        }
+
         // Received: quick ranges; a range set in More filters shows as its own checked line.
         menu.Items.Add(new Separator());
         var received = new MenuItem { Header = "Received" };
@@ -1036,6 +1057,51 @@ public partial class MainWindow : Window
         {
             Dialogs.Alert(this, "The cloud archive can't be reached right now. Local results are unaffected.", "Cloud Mail Archive");
         }
+    }
+
+    // ---------- Tags on mail ----------
+
+    /// <summary>Right-click on messages: tag them (one or the whole selection).</summary>
+    private void MessageList_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        var menu = MessageList.ContextMenu!;
+        menu.Items.Clear();
+        if (e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(MessageList, source) is ListBoxItem { DataContext: StoredMessage clicked }
+            && !MessageList.SelectedItems.Contains(clicked))
+            MessageList.SelectedItem = clicked;
+        var messages = _model.SelectedMessages();
+        if (messages.Count == 0 || _model.IsDemo && _model.TagBoard is null)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (_model.TagBoard is { } tags)
+            menu.Items.Add(MenuItem("Tags…", () => _ = TagMessagesAsync(tags, messages)));
+        if (menu.Items.Count == 0)
+            e.Handled = true;
+    }
+
+    private async void EventTags_Click(object sender, RoutedEventArgs e)
+    {
+        if (_model.TagBoard is { } tags && sender is FrameworkElement { DataContext: AgendaEvent ev })
+        {
+            if (await Alondra1.App.Tags.TagUi.PickAsync(this, tags, Alondra1.Core.Tags.TagRules.Event, [MainViewModel.EventRef(ev.Entry)], "Tags for this event (kept on this PC)"))
+                _model.RefreshAgenda();
+        }
+    }
+
+    private void ReaderTags_Click(object sender, RoutedEventArgs e)
+    {
+        if (_model.TagBoard is { } tags && _model.SelectedMessage is { } message)
+            _ = TagMessagesAsync(tags, [message]);
+    }
+
+    private async Task TagMessagesAsync(Alondra1.Core.Tags.TagBoard tags, IReadOnlyList<StoredMessage> messages)
+    {
+        var refs = messages.Select(MainViewModel.MailRef).Distinct().ToList();
+        await Alondra1.App.Tags.TagUi.PickAsync(this, tags, Alondra1.Core.Tags.TagRules.Mail, refs,
+            messages.Count == 1 ? "Tags for this message" : $"Tags for {messages.Count} messages", MainViewModel.MailTargets(messages));
     }
 
     private void RemoveFilterChip_Click(object sender, RoutedEventArgs e)

@@ -34,8 +34,12 @@ public sealed class SidebarItem
 
 public sealed class TaskItemVm
 {
-    public TaskItemVm(TodoTask task, string listName, Brush? listAccent, DateOnly today, bool showList)
+    /// <summary>The tags on the task in short ("Travel +2"), or empty.</summary>
+    public string TagText { get; }
+
+    public TaskItemVm(TodoTask task, string listName, Brush? listAccent, DateOnly today, bool showList, string tagText = "")
     {
+        TagText = tagText;
         Id = task.Id;
         Title = task.Title;
         Completed = task.Completed;
@@ -59,6 +63,8 @@ public sealed class TaskItemVm
             parts.Add("My Day");
         if (ListName.Length > 0)
             parts.Add(ListName);
+        if (tagText.Length > 0)
+            parts.Add("#" + tagText);
         HasMeta = parts.Count > 0 || DueText.Length > 0 || HasSteps || IsRecurring || HasReminder || HasNotes || HasAttachments;
         ContextText = string.Join(" · ", parts);
         AccessName = string.Join(", ", new[]
@@ -72,6 +78,7 @@ public sealed class TaskItemVm
             HasReminder ? "has reminder" : "",
             HasNotes ? "has note" : "",
             HasAttachments ? "has files" : "",
+            tagText.Length > 0 ? "tags " + tagText : "",
             ListName,
         }.Where(part => part.Length > 0));
     }

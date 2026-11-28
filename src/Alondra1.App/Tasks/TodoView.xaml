@@ -837,6 +837,25 @@
                 <Button.ContextMenu><ContextMenu/></Button.ContextMenu>
               </Button>
 
+              <!-- Tags (optional; the same tags as on mail, notes and events) -->
+              <TextBlock Text="TAGS" Style="{StaticResource SectionLabel}"/>
+              <WrapPanel>
+                <ItemsControl ItemsSource="{Binding DetailTags}" AutomationProperties.Name="Tags" Focusable="False">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Background="{DynamicResource SubtleBrush}" CornerRadius="10" Padding="8,2" Margin="0,0,6,4" AutomationProperties.Name="{Binding AccessName}">
+                        <StackPanel Orientation="Horizontal">
+                          <Ellipse Width="8" Height="8" Fill="{Binding Dot}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                          <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"/>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Style="{StaticResource QuietButton}" Click="EditTags_Click" Content="Edit tags…" Margin="0,0,0,4" AutomationProperties.Name="Edit tags of this task"/>
+              </WrapPanel>
+
               <!-- List -->
               <TextBlock Text="LIST" Style="{StaticResource SectionLabel}"/>
               <ComboBox x:Name="DetailListBox" ItemsSource="{Binding ListChoices}" SelectedItem="{Binding DetailList, Mode=OneWay}" DisplayMemberPath="Name"
