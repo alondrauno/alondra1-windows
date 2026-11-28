@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alondra1.com/schemas/tag-links-v1.schema.json",
+  "title": "Alondra1 tag link (v1)",
+  "description": "One tag assigned to one object (FEATURES_EXTENSION Part B §2.1). The id is derived: 'tl_' + the first 40 characters of base64url(SHA-256(tagId + U+001F + objectType + U+001F + objectRef)), so two devices adding the same tag to the same object offline create the same record. Unassigning sets removed=true (re-adding sets it back); deleting the tag or the object deletes the link. The tag must be live. For note, task and event the objectRef is the object's id and must name a live object of the owner in the same space; mail stays in the Windows app, so a mail objectRef (the app's stable message reference) is checked for shape only. Concurrent add and remove of the same link resolve in server version order. At most 50 tags per object and 500 tags per owner and space.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "tagId", "objectType", "objectRef"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^tl_[A-Za-z0-9_-]{40}$" },
+    "tagId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "objectType": { "type": "string", "enum": ["mail", "note", "task", "event"] },
+    "objectRef": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[!-~]+$" },
+    "removed": { "type": "boolean", "default": false },
+    "createdUtc": { "type": "string", "format": "date-time" },
+    "modifiedUtc": { "type": "string", "format": "date-time" }
+  }
+}

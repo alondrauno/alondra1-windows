@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alondra1.com/schemas/tags-v1.schema.json",
+  "title": "Alondra1 tag (v1)",
+  "description": "A reusable personal label for mail, notes, tasks and calendar events (FEATURES_EXTENSION Part B §2). Names are unique per owner and space among live tags, compared after trimming, Unicode NFC and case folding; the display casing is kept. Assignments are separate tag_link records that name the tag by id, so a rename changes nothing else. Color is a theme token; tags never rely on color alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 64, "description": "At most 64 characters (Unicode code points) after trimming; no control characters." },
+    "color": { "type": ["string", "null"], "enum": ["gray", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", null] },
+    "createdUtc": { "type": "string", "format": "date-time" },
+    "modifiedUtc": { "type": "string", "format": "date-time" }
+  }
+}
