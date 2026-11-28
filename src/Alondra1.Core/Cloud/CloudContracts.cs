@@ -13,11 +13,15 @@ public static class CloudKinds
     public const string Task = "task";
     public const string NoteFolder = "note_folder";
     public const string Note = "note";
+    public const string Tag = "tag";
+    public const string TagLink = "tag_link";
 
-    /// <summary>Push order: containers before their contents, so references exist on the server.</summary>
-    public static readonly string[] Order = [Group, List, Task, NoteFolder, Note];
+    /// <summary>Push order: containers before their contents, so references exist on the server (tag links last).</summary>
+    public static readonly string[] Order = [Group, List, Task, NoteFolder, Note, Tag, TagLink];
 
     public static bool IsNoteKind(string type) => type is Note or NoteFolder;
+
+    public static bool IsTagKind(string type) => type is Tag or TagLink;
 }
 
 /// <summary>One pending cloud change. The mutation id is renewed when the item changes after a send attempt.</summary>

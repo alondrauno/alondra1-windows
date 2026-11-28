@@ -2534,6 +2534,8 @@ public sealed class AppServices
     public Alondra1.Core.Cloud.Discovery.EndpointSelector? Endpoints { get; init; }
     public Alondra1.Core.Notes.NotesBoard? NotesBoard { get; init; }
     public Alondra1.Core.Notes.NoteAssets? NoteAssets { get; init; }
+    /// <summary>Tags on mail, notes, tasks and events (null when todo.db could not be opened).</summary>
+    public Alondra1.Core.Tags.TagBoard? Tags { get; init; }
     public string? TaskStoreError { get; init; }
 
     /// <summary>Alondra1's data folder (%LOCALAPPDATA%\alondra1, or a temporary folder in demo mode).</summary>
@@ -2580,7 +2582,8 @@ public sealed class AppServices
         var sync = new SyncCoordinator(mail, store, cache, secrets, oauth, new Alondra1.Core.Ports.SystemClock(), new NullConflicts());
         var (taskStore, taskFiles, board, taskError) = await OpenTasksAsync(root).ConfigureAwait(false);
         var (notesBoard, noteAssets) = await OpenNotesAsync(config, taskStore, root).ConfigureAwait(false);
-        var (cloudApi, cloudAccount, cloudSync, discovery, endpoints) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, taskFiles, root);
+        var tagBoard = await OpenTagsAsync(taskStore).ConfigureAwait(false);
+        var (cloudApi, cloudAccount, cloudSync, discovery, endpoints) = CreateCloud(config, secrets, taskStore, board, notesBoard, noteAssets, taskFiles, root, tagBoard);
         return new AppServices
         {
             Discovery = discovery,
@@ -2590,6 +2593,7 @@ public sealed class AppServices
             CloudSync = cloudSync,
             NotesBoard = notesBoard,
             NoteAssets = noteAssets,
+            Tags = tagBoard,
             Home = root,
             TaskStore = taskStore,
             TaskFiles = taskFiles,
@@ -2615,7 +2619,7 @@ public sealed class AppServices
     private static (Alondra1.Core.Cloud.CloudApi?, Alondra1.Core.Cloud.CloudAccount?, Alondra1.Core.Cloud.CloudSyncEngine?,
         Alondra1.Core.Cloud.Discovery.DiscoveryClient?, Alondra1.Core.Cloud.Discovery.EndpointSelector?) CreateCloud(
         AppConfig config, DpapiSecretStore secrets, SqliteTaskStore? taskStore, Alondra1.Core.Tasks.TaskBoard? board,
-        Alondra1.Core.Notes.NotesBoard? notes, Alondra1.Core.Notes.NoteAssets? assets, TaskFileStore? taskFiles, string root)
+        Alondra1.Core.Notes.NotesBoard? notes, Alondra1.Core.Notes.NoteAssets? assets, TaskFileStore? taskFiles, string root, Alondra1.Core.Tags.TagBoard? tags)
     {
         if (taskStore is null || board is null)
             return (null, null, null, null, null);
@@ -2658,13 +2662,31 @@ public sealed class AppServices
                 var folder = Path.Combine(root, "backups");
                 Directory.CreateDirectory(folder);
                 await taskStore.BackupToAsync(Path.Combine(folder, $"todo-before-cloud-{DateTime.Now:yyyyMMdd-HHmmss}.db")).ConfigureAwait(true);
-            }, notes, assets, taskFiles);
+            }, notes, assets, taskFiles, tags);
             return (api, account, engine, discovery, endpoints);
         }
         catch (Exception ex) when (ex is ArgumentException or UriFormatException)
         {
             Debug.WriteLine("Alondra1 cloud disabled: " + ex.Message);
             return (null, null, null, null, null);
+        }
+    }
+
+    /// <summary>Opens the tag catalog and assignments (in todo.db). Without todo.db, tags are unavailable; nothing else is.</summary>
+    private static async Task<Alondra1.Core.Tags.TagBoard?> OpenTagsAsync(SqliteTaskStore? store)
+    {
+        if (store is null)
+            return null;
+        var tags = new Alondra1.Core.Tags.TagBoard(store, new Alondra1.Core.Ports.SystemClock());
+        try
+        {
+            await tags.LoadAsync().ConfigureAwait(false);
+            return tags;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            Debug.WriteLine("Tags unavailable: " + ex.Message);
+            return null;
         }
     }
 

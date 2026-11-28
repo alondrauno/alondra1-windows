@@ -16,7 +16,7 @@ public sealed record MergePreview(int LocalTasks, int LocalLists, int LocalGroup
 /// Call it from the UI thread (TaskBoard is single-threaded).
 /// </summary>
 public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, CloudApi api, IClock clock, Func<Task>? backup = null,
-    NotesBoard? notes = null, NoteAssets? assets = null, ITaskFiles? taskFiles = null)
+    NotesBoard? notes = null, NoteAssets? assets = null, ITaskFiles? taskFiles = null, Alondra1.Core.Tags.TagBoard? tags = null)
 {
     /// <summary>Attachment limits; the server's once known (GET /v1/task-files/limits).</summary>
     public long MaxTaskFileBytes { get; private set; } = 25L << 20;
@@ -135,6 +135,14 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             foreach (var n in notes.Notes.Where(n => !versions.ContainsKey((CloudKinds.Note, n.Id)) && !remote.Contains((CloudKinds.Note, n.Id))))
                 await store.EnqueueAsync(CloudKinds.Note, n.Id, false, ct).ConfigureAwait(true);
         }
+
+        if (tags is not null)
+        {
+            foreach (var t in tags.Tags.Where(t => !versions.ContainsKey((CloudKinds.Tag, t.Id)) && !remote.Contains((CloudKinds.Tag, t.Id))))
+                await store.EnqueueAsync(CloudKinds.Tag, t.Id, false, ct).ConfigureAwait(true);
+            foreach (var l in tags.AllLinks.Where(l => Alondra1.Core.Tags.TagRules.IsSynced(l) && !versions.ContainsKey((CloudKinds.TagLink, l.Id)) && !remote.Contains((CloudKinds.TagLink, l.Id))))
+                await store.EnqueueAsync(CloudKinds.TagLink, l.Id, false, ct).ConfigureAwait(true);
+        }
         await store.SetMetaAsync("cursor", cursor, ct).ConfigureAwait(true);
     }
 
@@ -174,6 +182,7 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
                     await FilesSinceAsync(ct).ConfigureAwait(true);
                 await PushAsync(tenant, ct).ConfigureAwait(true);
                 await PullAsync(tenant, ct).ConfigureAwait(true);
+                await MergeDuplicateTagsAsync(ct).ConfigureAwait(true);
                 await DownloadAssetsAsync(tenant, ct).ConfigureAwait(true);
                 await RefreshTaskFileLimitsAsync(tenant, ct).ConfigureAwait(true);
                 // Conflict copies are created while pushing: send them in this same run, not at the next sync.
@@ -593,6 +602,8 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
         CloudKinds.Group => board.FindGroup(id) is { } g ? (JsonObject)JsonSerializer.SerializeToNode(g, Json)! : null,
         CloudKinds.NoteFolder => notes?.FindFolder(id) is { } f ? (JsonObject)JsonSerializer.SerializeToNode(f, Json)! : null,
         CloudKinds.Note => notes is not null && await notes.GetAsync(id, ct).ConfigureAwait(true) is { } n ? (JsonObject)JsonSerializer.SerializeToNode(n, Json)! : null,
+        CloudKinds.Tag => tags?.Find(id) is { } tag ? (JsonObject)JsonSerializer.SerializeToNode(tag, Json)! : null,
+        CloudKinds.TagLink => tags?.FindLink(id) is { } link ? (JsonObject)JsonSerializer.SerializeToNode(link, Json)! : null,
         _ => null,
     };
 
@@ -650,6 +661,11 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
                 await KeepBothAsync(item, result["current"] as JsonObject, result["current_deleted"]?.GetValue<bool>() == true, ct).ConfigureAwait(true);
                 await store.CompleteAsync(item, null, ct).ConfigureAwait(true);
                 break;
+            // Two devices made the same tag name offline: the cloud kept the first, and this PC's tag is merged into it
+            // after the pull (MergeDuplicateTagsAsync), together with the links that named it. Nothing to report.
+            case "rejected" when CloudKinds.IsTagKind(item.EntityType) && result["code"]?.GetValue<string>() is "TAG_NAME_TAKEN" or "INVALID_REFERENCE":
+                await store.CompleteAsync(item, null, ct).ConfigureAwait(true);
+                break;
             default:
                 await store.AddIssueAsync(item.EntityType, item.EntityId, TitleOf(item.EntityType, item.EntityId),
                     "Not synced: " + (result["message"]?.GetValue<string>() ?? "the cloud did not accept this change.") + " It is still on this PC.", clock.UtcNow, ct).ConfigureAwait(true);
@@ -668,6 +684,8 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
         CloudKinds.Group => board.FindGroup(id)?.Name,
         CloudKinds.NoteFolder => notes?.FindFolder(id)?.Name,
         CloudKinds.Note => notes?.Find(id)?.DisplayTitle,
+        CloudKinds.Tag => tags?.Find(id)?.Name is { } name ? "Tag “" + name + "”" : null,
+        CloudKinds.TagLink => "Tag on an item",
         _ => null,
     } ?? "Item";
 
@@ -681,7 +699,9 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
     private async Task KeepBothAsync(OutboxItem item, JsonObject? current, bool currentDeleted, CancellationToken ct)
     {
         var title = TitleOf(item.EntityType, item.EntityId);
-        var report = true;
+        // Tags: the cloud's state is adopted without a copy (a tag added on one device and removed on another resolve in
+        // server order; the item itself is never changed by a tag conflict).
+        var report = !CloudKinds.IsTagKind(item.EntityType);
         JsonArray? mergedFiles = null;
         if (item.EntityType == CloudKinds.Task && board.FindTask(item.EntityId) is { } mine)
         {
@@ -785,17 +805,26 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
         var versions = new List<SyncVersion>();
         var noteChanges = new NoteChangeSet();
         var noteVersions = new List<SyncVersion>();
+        var tagChanges = new Alondra1.Core.Tags.TagChangeSet();
+        var tagVersions = new List<SyncVersion>();
         foreach (var item in items)
         {
             var type = item["resource_type"]?.GetValue<string>();
             var id = item["resource_id"]?.GetValue<string>();
-            if (type is null || id is null || !CloudKinds.Order.Contains(type) || (notes is null && CloudKinds.IsNoteKind(type)))
+            if (type is null || id is null || !CloudKinds.Order.Contains(type) || (notes is null && CloudKinds.IsNoteKind(type))
+                || (tags is null && CloudKinds.IsTagKind(type)))
                 continue; // completions, settings and calendar events are not synced by this client
             if (!force && pending.Contains((type, id)))
                 continue;
             if (CloudKinds.IsNoteKind(type))
             {
                 CollectNote(item, type, id, noteChanges, noteVersions);
+                continue;
+            }
+
+            if (CloudKinds.IsTagKind(type))
+            {
+                CollectTag(item, type, id, tagChanges, tagVersions);
                 continue;
             }
 
@@ -839,6 +868,9 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             await QueueDownloadsAsync(noteChanges.UpsertNotes, ct).ConfigureAwait(true);
         }
 
+        if (tags is not null && (!tagChanges.IsEmpty || tagVersions.Count > 0))
+            await tags.ApplyRemoteAsync(tagChanges, tagVersions).ConfigureAwait(true);
+
         await board.ApplyRemoteAsync(changes, versions, cursor).ConfigureAwait(true);
         if (!changes.IsEmpty && changes.UpsertLists.Any(l => l.IsDefault))
             await AdoptCloudDefaultListAsync(ct).ConfigureAwait(true);
@@ -862,6 +894,35 @@ public sealed class CloudSyncEngine(TaskBoard board, ICloudSyncStore store, Clou
             changes.UpsertNotes.Add(obj.Deserialize<Note>(Json)!);
         else
             changes.UpsertFolders.Add(obj.Deserialize<NoteFolder>(Json)!);
+    }
+
+    private void CollectTag(JsonObject item, string type, string id, Alondra1.Core.Tags.TagChangeSet changes, List<SyncVersion> versions)
+    {
+        if (item["action"]?.GetValue<string>() == "delete")
+        {
+            if (type == CloudKinds.Tag && tags!.Find(id) is not null)
+                changes.DeleteTags.Add(id);
+            else if (type == CloudKinds.TagLink && tags!.FindLink(id) is not null)
+                changes.DropLinks.Add(id);
+            return;
+        }
+
+        if (item["record"] is not JsonObject record || record[type] is not JsonObject obj)
+            return;
+        versions.Add(new SyncVersion(type, id, record["version"]!.GetValue<long>(), obj.ToJsonString()));
+        if (type == CloudKinds.Tag)
+            changes.UpsertTags.Add(obj.Deserialize<Alondra1.Core.Tags.Tag>(Json)!);
+        else
+            changes.UpsertLinks.Add(obj.Deserialize<Alondra1.Core.Tags.TagLink>(Json)!);
+    }
+
+    /// <summary>A tag this PC created offline with a name the cloud already had is merged into the cloud's tag.</summary>
+    private async Task MergeDuplicateTagsAsync(CancellationToken ct)
+    {
+        if (tags is null)
+            return;
+        var synced = (await store.VersionsAsync(ct).ConfigureAwait(true)).Keys.Where(k => k.Type == CloudKinds.Tag).Select(k => k.Id).ToHashSet();
+        await tags.MergeUnsyncedDuplicatesAsync(synced).ConfigureAwait(true);
     }
 
     /// <summary>Reminder delivery state (delivered, dismissed, snoozed) belongs to this PC and is never taken from the cloud.</summary>

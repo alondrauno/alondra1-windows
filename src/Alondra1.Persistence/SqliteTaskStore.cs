@@ -13,7 +13,7 @@ namespace Alondra1.Persistence;
 public sealed partial class SqliteTaskStore : ITaskStore, ICloudSyncStore, IAsyncDisposable
 {
     /// <summary>Schema version written by this build. Opening a newer file is refused without changing it.</summary>
-    public const int SchemaVersion = 5;
+    public const int SchemaVersion = 6;
 
     private static readonly JsonSerializerOptions Json = TodoTransfer.CreateOptions();
     private readonly string _path;
@@ -574,6 +574,34 @@ public sealed partial class SqliteTaskStore : ITaskStore, ICloudSyncStore, IAsyn
             """),
         // A note conflict remembers its conflict copy, so the user can compare the two versions and resolve them.
         (5, "ALTER TABLE sync_issues ADD COLUMN copy_id TEXT;"),
+        // Tags (FEATURES_EXTENSION Part B §2): the catalog, assignments to mail, notes, tasks and events, and where
+        // tagged mail is on this PC (local only). Additive: older versions of the app ignore these tables.
+        (6, """
+            CREATE TABLE IF NOT EXISTS tags (
+              id TEXT PRIMARY KEY,
+              name_key TEXT NOT NULL,
+              json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_tags_name ON tags(name_key);
+            CREATE TABLE IF NOT EXISTS tag_links (
+              id TEXT PRIMARY KEY,
+              tag_id TEXT NOT NULL,
+              object_type TEXT NOT NULL,
+              object_ref TEXT NOT NULL,
+              removed INTEGER NOT NULL DEFAULT 0,
+              json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_tag_links_tag ON tag_links(tag_id);
+            CREATE INDEX IF NOT EXISTS ix_tag_links_object ON tag_links(object_type, object_ref);
+            CREATE TABLE IF NOT EXISTS mail_tag_targets (
+              ref TEXT PRIMARY KEY,
+              account_id TEXT NOT NULL,
+              folder_id TEXT NOT NULL,
+              uid INTEGER NOT NULL,
+              subject TEXT NOT NULL,
+              received_utc TEXT NOT NULL
+            );
+            """),
     ];
 
     private static async Task MigrateAsync(SqliteConnection connection, long from, int to, CancellationToken cancellationToken)
